@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "name": "shader-room",
+  "working_directory": "..",
+  "command": ["/opt/homebrew/bin/node", "node_modules/vite/bin/vite.js", "--host", "127.0.0.1", "--port", "3012", "--strictPort"],
+  "port": 3012,
+  "healthcheck": "http://127.0.0.1:3012/",
+  "healthcheck_contains": "<title>Shader Room · 模型与效果工作台</title>",
+  "environment": {},
+  "keep_alive": true
+}

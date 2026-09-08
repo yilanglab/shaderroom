@@ -1,0 +1,28 @@
+{
+  "name": "shader-room",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 127.0.0.1 --port 3012 --strictPort",
+    "build": "tsc -b && vite build",
+    "typecheck": "tsc -b",
+    "test": "tsx --test tests/*.test.ts"
+  },
+  "dependencies": {
+    "lucide-react": "1.7.0",
+    "react": "19.2.4",
+    "react-dom": "19.2.4",
+    "three": "0.183.2"
+  },
+  "devDependencies": {
+    "@types/node": "25.5.0",
+    "@types/react": "19.2.14",
+    "@types/react-dom": "19.2.3",
+    "@types/three": "0.183.1",
+    "@vitejs/plugin-react": "5.0.4",
+    "tsx": "4.20.6",
+    "typescript": "5.9.3",
+    "vite": "7.1.12"
+  }
+}
