@@ -1,7 +1,8 @@
+import { publicPath } from './lib/publicPath'
 import type { BackgroundSettings, LightingSettings, ModelEntry, ParticleSettings, ShaderId, ShaderParams, ViewSettings } from './types'
 
 export const DEFAULT_MODELS: ModelEntry[] = [
-  { id: 'claw', name: 'Claw 龙虾', kind: 'glb', url: '/models/claw.glb', source: 'builtin', fileName: 'claw.glb', fileSize: 140620, sha256: 'c01fc6e429f4d1c0d81c00306858be5451b2d497a009d875890d63b118bc17f5' },
+  { id: 'claw', name: 'Claw 龙虾', kind: 'glb', url: publicPath('models/claw.glb'), source: 'builtin', fileName: 'claw.glb', fileSize: 140620, sha256: 'c01fc6e429f4d1c0d81c00306858be5451b2d497a009d875890d63b118bc17f5' },
   { id: 'knot', name: '环面纽结', kind: 'torus-knot', source: 'builtin' },
   { id: 'sphere', name: '球体', kind: 'sphere', source: 'builtin' },
   { id: 'cube', name: '圆角方块', kind: 'rounded-cube', source: 'builtin' },

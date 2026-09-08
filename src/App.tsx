@@ -1,3 +1,4 @@
+import { PUBLIC_BASE, publicPath } from './lib/publicPath'
 import { DEFAULT_REFERENCE, isReferenceShader, type ReferenceSettings } from './render/referenceEffects'
 import { ColorPicker } from './components/ColorPicker'
 import { DEFAULT_SURFACE, createDissolve, isSurfaceShader, type SurfaceSettings } from './render/surfaceEffects'
@@ -60,7 +61,7 @@ function LightControls({ label, value, defaultOpen = false, onChange }: { label:
 }
 
 function EffectPreview({ effect }: { effect: ShaderId }) {
-  return <span className={`effect-preview effect-${effect}`} aria-hidden="true">{effect === 'ascii' ? <span className="ascii-preview">{' .:+\n+#@*\n =:. '}</span> : effect === 'particle-morph' ? <img src="/assets/ams-logo.svg" alt="" /> : <span className="effect-orb" />}</span>
+  return <span className={`effect-preview effect-${effect}`} aria-hidden="true">{effect === 'ascii' ? <span className="ascii-preview">{' .:+\n+#@*\n =:. '}</span> : effect === 'particle-morph' ? <img src={publicPath('assets/ams-logo.svg')} alt="" /> : <span className="effect-orb" />}</span>
 }
 
 export default function App() {
@@ -208,7 +209,7 @@ export default function App() {
   return <main className={`workspace ${luminance > 165 ? 'light-canvas' : ''}`} style={backgroundStyle}>
     <div className="stage-layer" aria-label="3D 模型预览区"><ShaderStage key={retryKey} ref={stageRef} model={model} shader={shader} params={params} lighting={lighting} view={view} particle={particle} surface={surface} reference={reference} onDissolveState={setDissolvePlayback} onParticleState={setParticlePlayback} onScaleChange={onScaleChange} onThumbnail={onThumbnail} onReady={onReady} onError={onError} onLoading={onLoading} /></div>
     <header className="workspace-header">
-      <a className="brand" href="/" aria-label="Shader Room 首页"><span className="brand-mark" aria-hidden="true">✳</span><span>shader<span className="brand-room">room</span><span className="brand-dot">.</span></span></a>
+      <a className="brand" href={PUBLIC_BASE} aria-label="Shader Room 首页"><span className="brand-mark" aria-hidden="true">✳</span><span>shader<span className="brand-room">room</span><span className="brand-dot">.</span></span></a>
       <div className="header-caption">3D 模型 × 材质实验</div>
       <button className="header-help" aria-label="操作说明" aria-expanded={helpOpen} onClick={() => setHelpOpen(!helpOpen)}><CircleHelp size={17} /><span>使用帮助</span></button>
       {helpOpen && <div className="help-popover"><strong>在这里，试一点新效果。</strong><p>拖动模型旋转，滚轮或双指缩放。左右面板可以收起，给模型留出更多空间。</p><p>上传的 GLB / FBX 只在浏览器中处理，刷新页面后需重新选择。导出效果文档时，请把对应模型一起交给 Agent。</p><button onClick={() => setHelpOpen(false)}>知道了 <Check size={13} /></button></div>}
@@ -285,7 +286,7 @@ export default function App() {
             <div className="shader-parameters">
               {isParticle && <>
                 <div className="particle-playback">
-                  <div className="particle-route"><span className="particle-logo"><img src="/assets/ams-logo.svg" alt="AMS 标志" /></span><span className="particle-route-arrow">↔</span><span className="particle-target"><Box size={15} /><span title={model.name}>{model.name}</span></span></div>
+                  <div className="particle-route"><span className="particle-logo"><img src={publicPath('assets/ams-logo.svg')} alt="AMS 标志" /></span><span className="particle-route-arrow">↔</span><span className="particle-target"><Box size={15} /><span title={model.name}>{model.name}</span></span></div>
                   <div className="particle-status"><span aria-live="polite">{particleStatus}</span><span>{particlePlaying ? `${Math.round(particlePlayback.progress * 100)}%` : particlePlayback.phase === 'logo' ? 'SVG' : '3D'}</span></div>
                   <div className="particle-progress" role="progressbar" aria-label="粒子变形进度" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(particlePlayback.progress * 100)}><span style={{ transform: `scaleX(${particlePlayback.progress})` }} /></div>
                   <div className="particle-actions"><button className="particle-play-button" disabled={!particleCanPlay} onClick={() => stageRef.current?.playParticle()}>{particlePlaying ? <LoaderCircle size={14} className="spin" /> : <Play size={14} />}{particleAction}</button><button className="icon-button" title="还原标志" aria-label="重置粒子动画" disabled={!particlePlayback.ready || !!stageError} onClick={() => stageRef.current?.resetParticle()}><RotateCcw size={14} /></button></div>
