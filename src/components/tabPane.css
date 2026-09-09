@@ -1,0 +1,33 @@
+.tab-content-viewport {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  isolation: isolate;
+}
+.tab-pane {
+  position: absolute;
+  inset: 0;
+  transform-origin: center top;
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transform: translateX(-32px) scale(.97);
+  transition: transform 180ms cubic-bezier(.32,.72,0,1),
+    opacity 180ms cubic-bezier(.32,.72,0,1), visibility 0s 180ms;
+}
+.tab-pane[data-side="right"] { transform: translateX(32px) scale(.97); }
+.tab-pane[data-active="true"] {
+  opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
+  transform: translateX(0) scale(1);
+  transition-duration: 250ms, 250ms, 0s;
+  transition-delay: 0s;
+}
+.floating-panel .panel-tabs-pill { transition-timing-function: cubic-bezier(.32,.72,0,1); }
+.floating-panel[data-tab-input="keyboard"] .tab-pane,
+.floating-panel[data-tab-input="keyboard"] .panel-tabs-pill { transition: none; }
+@media (prefers-reduced-motion: reduce) {
+  .tab-pane { transition: none; }
+}

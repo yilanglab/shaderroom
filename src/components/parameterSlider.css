@@ -1,0 +1,71 @@
+.parameter .parameter-heading {
+  margin-bottom: 0;
+}
+
+.parameter .range {
+  --slider-thumb-width: 40px;
+  /* Native thumbs travel across track width minus thumb width. */
+  --slider-fill-end: calc(var(--range-progress) + (0.5 - var(--range-fraction)) * var(--slider-thumb-width));
+  --slider-grip: linear-gradient(#dce2f4, #dce2f4);
+  appearance: none;
+  -webkit-appearance: none;
+  width: 100%;
+  height: 40px;
+  margin: 0 0 3px;
+  background: transparent;
+  border-radius: 7px;
+  outline-offset: 2px;
+}
+
+.parameter .range::-webkit-slider-runnable-track {
+  height: 22px;
+  border-radius: 6px;
+  background: linear-gradient(to right, #899bdf 0 var(--slider-fill-end), #e0e5ef var(--slider-fill-end) 100%);
+  box-shadow: inset 0 0 0 1px #6472940a;
+}
+
+.parameter .range::-moz-range-track {
+  height: 22px;
+  border-radius: 6px;
+  background: linear-gradient(to right, #899bdf 0 var(--slider-fill-end), #e0e5ef var(--slider-fill-end) 100%);
+  box-shadow: inset 0 0 0 1px #6472940a;
+}
+
+.parameter .range::-webkit-slider-thumb {
+  appearance: none;
+  -webkit-appearance: none;
+  box-sizing: border-box;
+  width: var(--slider-thumb-width);
+  height: 22px;
+  margin-top: 0;
+  border: 1px solid #d2daf6;
+  border-radius: 6px;
+  background: var(--slider-grip) calc(50% - 4px) center / 1px 9px no-repeat,
+    var(--slider-grip) center / 1px 9px no-repeat,
+    var(--slider-grip) calc(50% + 4px) center / 1px 9px no-repeat, #fff;
+  box-shadow: none;
+  cursor: ew-resize;
+}
+
+.parameter .range::-moz-range-thumb {
+  box-sizing: border-box;
+  width: var(--slider-thumb-width);
+  height: 22px;
+  border: 1px solid #d2daf6;
+  border-radius: 6px;
+  background: var(--slider-grip) calc(50% - 4px) center / 1px 9px no-repeat,
+    var(--slider-grip) center / 1px 9px no-repeat,
+    var(--slider-grip) calc(50% + 4px) center / 1px 9px no-repeat, #fff;
+  box-shadow: none;
+  cursor: ew-resize;
+}
+
+.parameter .range:hover::-webkit-slider-thumb { border-color: #b5c2ed; }
+.parameter .range:hover::-moz-range-thumb { border-color: #b5c2ed; }
+.parameter .range:active::-webkit-slider-thumb { border-color: #899bdf; }
+.parameter .range:active::-moz-range-thumb { border-color: #899bdf; }
+.parameter .range:focus-visible { outline: 2px solid #626b7c; }
+.parameter .range:disabled { opacity: .45; cursor: not-allowed; }
+@media (pointer: coarse) {
+  .parameter .range { height: 44px; }
+}

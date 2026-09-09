@@ -1,0 +1,150 @@
+.floating-panel.morph-panel {
+  --panel-closed-width: 45px;
+  --panel-closed-height: 45px;
+  --panel-radius: 20px;
+  --panel-shift: -24px;
+  --panel-closed-clip: inset(0 calc(100% - var(--panel-closed-width)) calc(100% - var(--panel-closed-height)) 0 round 12px);
+  --panel-open-ease: cubic-bezier(.34,1.25,.64,1);
+  --panel-close-ease: cubic-bezier(.22,1,.36,1);
+  background: none;
+  border: 0;
+  box-shadow: none;
+  overflow: visible;
+  pointer-events: none;
+}
+.morph-panel.right-panel {
+  --panel-shift: 24px;
+  --panel-closed-clip: inset(0 0 calc(100% - var(--panel-closed-height)) calc(100% - var(--panel-closed-width)) round 12px);
+}
+.panel-surface {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: var(--panel-closed-width);
+  height: var(--panel-closed-height);
+  border-radius: 12px;
+  background: var(--panel);
+  border: 1px solid #ffffffc7;
+  box-shadow: 0 12px 44px #19254f21, 0 2px 7px #19254f0a;
+  transition: width 250ms var(--panel-close-ease), height 250ms var(--panel-close-ease), border-radius 250ms var(--panel-close-ease);
+}
+.right-panel .panel-surface { left: auto; right: 0; }
+.morph-panel[data-open="true"] .panel-surface {
+  width: 100%;
+  height: 100%;
+  border-radius: var(--panel-radius);
+  transition-duration: 350ms;
+  transition-timing-function: var(--panel-open-ease);
+}
+.panel-body {
+  position: absolute;
+  inset: 1px;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  border-radius: calc(var(--panel-radius) - 1px);
+  overflow: hidden;
+  opacity: 0;
+  visibility: hidden;
+  transform: translateX(var(--panel-shift)) scale(.97);
+  transform-origin: top left;
+  filter: blur(2px);
+  clip-path: var(--panel-closed-clip);
+  pointer-events: none;
+  transition: opacity 150ms var(--panel-close-ease), transform 250ms var(--panel-close-ease), filter 150ms var(--panel-close-ease), visibility 0s 250ms, clip-path 250ms var(--panel-close-ease);
+}
+.right-panel .panel-body { transform-origin: top right; }
+.morph-panel[data-open="true"] .panel-body {
+  opacity: 1;
+  visibility: visible;
+  transform: translateX(0) scale(1);
+  filter: blur(0);
+  clip-path: inset(0 round var(--panel-radius));
+  pointer-events: auto;
+  transition-duration: 200ms, 350ms, 200ms, 0s, 350ms;
+  transition-delay: 60ms, 0s, 60ms, 0s, 0s;
+  transition-timing-function: var(--panel-close-ease), var(--panel-close-ease), var(--panel-close-ease), linear, var(--panel-open-ease);
+}
+.morph-panel .panel-expand {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: var(--panel-closed-width);
+  height: var(--panel-closed-height);
+  border-radius: 12px;
+  justify-content: center;
+  padding: 0;
+  pointer-events: auto;
+  opacity: 1;
+  visibility: visible;
+  transition: opacity 160ms var(--panel-close-ease), transform 250ms var(--panel-close-ease), filter 160ms var(--panel-close-ease), visibility 0s;
+}
+.right-panel.morph-panel .panel-expand { left: auto; right: 0; }
+.morph-panel[data-open="true"] .panel-expand {
+  opacity: 0;
+  visibility: hidden;
+  transform: translateX(var(--panel-shift)) scale(.97);
+  filter: blur(2px);
+  pointer-events: none;
+  transition-delay: 0s, 0s, 0s, 160ms;
+}
+.morph-panel .panel-expand > svg:first-child { width: 19px; height: 19px; opacity: 1; transition: transform 350ms var(--panel-close-ease); }
+.morph-panel[data-open="true"] .panel-expand > svg:first-child { transform: rotate(45deg); }
+@media (max-width: 640px) {
+  .floating-panel.morph-panel { --panel-radius: 17px; --panel-closed-width: 42px; --panel-closed-height: 40px; }
+  .morph-panel .panel-expand { padding: 0; }
+  .morph-panel .panel-expand > svg:first-child { width: 16px; height: 16px; }
+}
+.panel-trigger-wrap {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: var(--panel-closed-width);
+  height: var(--panel-closed-height);
+}
+.right-panel .panel-trigger-wrap { left: auto; right: 0; }
+.morph-panel[data-open="false"] .panel-trigger-wrap { pointer-events: auto; }
+.panel-tooltip {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 0;
+  transform: scale(.98);
+  transform-origin: left top;
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: #fff;
+  color: #2f2f2f;
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: nowrap;
+  box-shadow: 0 0 0 1px #0000000f, 0 2px 6px #0000000d, 0 4px 42px #0000000f;
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transition: opacity 50ms ease-out, transform 50ms ease-out, visibility 0s 50ms;
+}
+.right-panel .panel-tooltip { left: auto; right: 0; transform-origin: right top; }
+.panel-tooltip::before { content: ''; position: absolute; left: 0; right: 0; top: -8px; height: 8px; }
+.morph-panel[data-open="false"] .panel-expand:focus-visible + .panel-tooltip {
+  opacity: 1;
+  visibility: visible;
+  transform: scale(1);
+  pointer-events: auto;
+  transition-duration: 150ms, 150ms, 0s;
+  transition-delay: 80ms;
+}
+@media (hover: hover) and (pointer: fine) {
+  .morph-panel[data-open="false"] .panel-trigger-wrap:hover .panel-tooltip {
+    opacity: 1;
+    visibility: visible;
+    transform: scale(1);
+    pointer-events: auto;
+    transition-duration: 150ms, 150ms, 0s;
+    transition-delay: 80ms;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .morph-panel .panel-surface, .morph-panel .panel-body,
+  .morph-panel .panel-expand, .morph-panel .panel-expand > svg:first-child,
+  .morph-panel .panel-tooltip { transition: none !important; }
+}

@@ -1,6 +1,7 @@
 import { PUBLIC_BASE, publicPath } from './lib/publicPath'
 import { DEFAULT_REFERENCE, isReferenceShader, type ReferenceSettings } from './render/referenceEffects'
 import { ColorPicker } from './components/ColorPicker'
+import { TabPane } from './components/TabPane'
 import { DEFAULT_SURFACE, createDissolve, isSurfaceShader, type SurfaceSettings } from './render/surfaceEffects'
 import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from 'react'
 import type { CSSProperties, KeyboardEvent, ReactNode } from 'react'
@@ -19,6 +20,10 @@ function TabButton({ active, children, onClick, id, controls }: { active: boolea
   return <button type="button" role="tab" aria-selected={active} aria-controls={controls} id={id} tabIndex={active ? 0 : -1} className={`tab-button ${active ? 'active' : ''}`} onClick={onClick}>{children}</button>
 }
 function tabKeys(event: KeyboardEvent<HTMLDivElement>) {
+  if (['ArrowLeft', 'ArrowRight', 'Home', 'End', 'Enter', ' '].includes(event.key)) {
+    const panel = event.currentTarget.closest('aside')
+    if (panel) panel.dataset.tabInput = 'keyboard'
+  }
   if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return
   event.preventDefault()
   const buttons = Array.from(event.currentTarget.querySelectorAll<HTMLButtonElement>('[role="tab"]'))
@@ -55,7 +60,7 @@ function SlidingTabs({ active, label, children }: { active: string; label: strin
     bar.querySelectorAll('[role="tab"]').forEach(tab => observer.observe(tab))
     return () => observer.disconnect()
   }, [position])
-  return <div ref={barRef} className="panel-tabs" role="tablist" aria-label={label} onKeyDown={tabKeys}>
+  return <div ref={barRef} className="panel-tabs" role="tablist" aria-label={label} onKeyDown={tabKeys} onPointerDown={event => { const panel = event.currentTarget.closest('aside'); if (panel) panel.dataset.tabInput = 'pointer' }}>
     <span ref={pillRef} className="panel-tabs-pill" aria-hidden="true" />
     {children}
   </div>
@@ -67,12 +72,13 @@ function Parameter({ label, value, min, max, step = 1, suffix = '', onChange }: 
   const normalize = (next: number) => Math.min(max, Math.max(min, Number(next.toFixed(digits))))
   return <div className="parameter">
     <div className="parameter-heading"><label htmlFor={id}>{label}</label><div className="numeric-field"><input aria-label={`${label}数值`} type="number" min={min} max={max} step={step} value={Number(value.toFixed(digits))} onChange={e => { if (e.target.value !== '' && Number.isFinite(e.target.valueAsNumber)) onChange(normalize(e.target.valueAsNumber)) }} /><span>{suffix}</span></div></div>
-    <input id={id} className="range" type="range" min={min} max={max} step={step} value={value} style={{ '--range-progress': `${(value - min) / (max - min) * 100}%` } as CSSProperties} onChange={e => onChange(normalize(Number(e.target.value)))} />
+    <input id={id} className="range" type="range" min={min} max={max} step={step} value={value} style={{ '--range-progress': `${(value - min) / (max - min) * 100}%`, '--range-fraction': (value - min) / (max - min) } as CSSProperties} onChange={e => onChange(normalize(Number(e.target.value)))} />
   </div>
 }
 
 function Toggle({ checked, onChange, children }: { checked: boolean; onChange: (v: boolean) => void; children: ReactNode }) {
-  return <label className="toggle-row"><span>{children}</span><input type="checkbox" checked={checked} onChange={e => onChange(e.target.checked)} /><span className="toggle-track" aria-hidden="true" /></label>
+  const [interacted, setInteracted] = useState(false)
+  return <label className={`toggle-row ${interacted ? 'is-init' : ''}`} data-on={checked}><span>{children}</span><input type="checkbox" role="switch" checked={checked} onChange={e => { setInteracted(true); onChange(e.target.checked) }} /><span className="toggle-track" aria-hidden="true" /></label>
 }
 
 function ColorField({ label, value, onChange }: { label: string; value: string; onChange: (v: string) => void }) {
@@ -124,7 +130,6 @@ export default function App() {
   const [rightTab, setRightTab] = useState<RightTab>('shader')
   const [leftOpen, setLeftOpen] = useState(() => window.innerWidth > 640)
   const [rightOpen, setRightOpen] = useState(() => window.innerWidth > 900)
-  const [uploadOpen, setUploadOpen] = useState(true)
   const [isDragging, setIsDragging] = useState(false)
   const [uploading, setUploading] = useState(false)
   const [uploadError, setUploadError] = useState('')
@@ -184,8 +189,12 @@ export default function App() {
     if (id !== selectedId) { setSelectedId(id); setView(prev => ({ ...prev, scale: 1, rotationX: 0, rotationY: 0, rotationZ: 0 })) }
   }
   function togglePanel(side: 'left' | 'right') {
+    const opening = side === 'left' ? !leftOpen : !rightOpen
     if (side === 'left') { setLeftOpen(!leftOpen); if (!leftOpen && window.innerWidth <= 900) setRightOpen(false) }
     else { setRightOpen(!rightOpen); if (!rightOpen && window.innerWidth <= 900) setLeftOpen(false) }
+    requestAnimationFrame(() => {
+      document.querySelector<HTMLButtonElement>(`.${side}-panel ${opening ? '.panel-top button' : '.panel-expand'}`)?.focus({ preventScroll: true })
+    })
   }
   async function uploadFiles(files: File[]) {
     if (!files.length || uploading) return
@@ -249,16 +258,18 @@ export default function App() {
       {helpOpen && <div className="help-popover"><strong>在这里，试一点新效果。</strong><p>拖动模型旋转，滚轮或双指缩放。左右面板可以收起，给模型留出更多空间。</p><p>上传的 GLB / FBX 只在浏览器中处理，刷新页面后需重新选择。导出效果文档时，请把对应模型一起交给 Agent。</p><button onClick={() => setHelpOpen(false)}>知道了 <Check size={13} /></button></div>}
     </header>
 
-    <aside className={`floating-panel left-panel ${leftOpen ? '' : 'collapsed'}`} aria-label="模型与效果面板">
-      {leftOpen ? <>
+    <aside className="floating-panel left-panel morph-panel" data-open={leftOpen} aria-label="模型与效果面板">
+      <div className="panel-surface" aria-hidden="true" />
+      <div id="model-panel-content" className="panel-body" inert={!leftOpen} aria-hidden={!leftOpen}>
         <div className="panel-top"><span className="panel-eyebrow">素材与效果</span><button className="icon-button" onClick={() => togglePanel('left')} aria-label="收起模型面板"><ChevronLeft size={17} /></button></div>
         <SlidingTabs active={leftTab} label="选择素材类型">
           <TabButton active={leftTab === 'models'} id="models-tab" controls="models-panel" onClick={() => setLeftTab('models')}><Box size={15} />模型</TabButton>
           <TabButton active={leftTab === 'effects'} id="effects-tab" controls="effects-panel" onClick={() => setLeftTab('effects')}><Sparkles size={15} />效果</TabButton>
         </SlidingTabs>
-        <div key={leftTab} className="panel-scroll left-scroll">
-          {leftTab === 'models' ? <section id="models-panel" role="tabpanel" aria-labelledby="models-tab">
-            <div className="section-heading"><h2>模型库</h2><span>{models.length} 个模型</span></div>
+        <div className="tab-content-viewport">
+          <TabPane active={leftTab === 'models'} side="left" className="left-scroll">
+          <section id="models-panel" role="tabpanel" aria-labelledby="models-tab">
+            <div className="section-heading"><h2>模型库</h2></div>
             <div className="model-grid">
               {models.map(entry => <div className={`model-card ${selectedId === entry.id ? 'selected' : ''}`} key={entry.id}>
                 <button type="button" className="model-choice" aria-label={`选择${entry.name}`} aria-pressed={selectedId === entry.id} onClick={() => selectModel(entry.id)}>
@@ -269,36 +280,45 @@ export default function App() {
                 {entry.source === 'upload' && <button className="remove-model" aria-label={`移除${entry.name}`} onClick={() => removeModel(entry)}><X size={11} /></button>}
               </div>)}
             </div>
-            <div className="upload-section"><button className="section-toggle" aria-expanded={uploadOpen} aria-controls="upload-area" onClick={() => setUploadOpen(!uploadOpen)}><span>添加自己的模型</span><ChevronDown size={14} className={uploadOpen ? '' : 'rotated'} /></button>
-              {uploadOpen && <div id="upload-area">
+            <div className="upload-section">
+              <div id="upload-area">
                 <button className={`upload-area ${isDragging ? 'dragging' : ''}`} disabled={uploading} onClick={() => fileInput.current?.click()} onDragEnter={e => { e.preventDefault(); dragDepth.current++; setIsDragging(true) }} onDragLeave={e => { e.preventDefault(); dragDepth.current--; if (!dragDepth.current) setIsDragging(false) }} onDragOver={e => { e.preventDefault(); e.dataTransfer.dropEffect = 'copy' }} onDrop={e => { e.preventDefault(); dragDepth.current = 0; setIsDragging(false); void uploadFiles(Array.from(e.dataTransfer.files)) }}>
                   {uploading ? <LoaderCircle className="spin" size={23} /> : <Upload size={23} strokeWidth={1.5} />}<strong>{uploading ? '正在读取模型…' : isDragging ? '松开，添加模型' : '点击或拖拽上传'}</strong><span>GLB / FBX · 最大 50 MB</span>
                 </button>
                 <p className="upload-note">文件只在本地处理。FBX 展示静态姿态，外部贴图不加载。刷新后需重新上传。</p>
-              </div>}
+              </div>
               <input type="file" accept=".glb,.fbx" multiple ref={fileInput} className="sr-only" aria-label="上传 GLB / FBX 模型" onChange={e => { void uploadFiles(Array.from(e.target.files ?? [])); e.target.value = '' }} />
               {uploadError && <div className="inline-error" role="alert">{uploadError}<button aria-label="关闭上传错误" onClick={() => setUploadError('')}><X size={13} /></button></div>}
             </div>
-          </section> : <section id="effects-panel" role="tabpanel" aria-labelledby="effects-tab">
+          </section>
+          </TabPane>
+          <TabPane active={leftTab === 'effects'} side="right" className="left-scroll">
+          <section id="effects-panel" role="tabpanel" aria-labelledby="effects-tab">
             <div className="section-heading"><h2>效果库</h2><span>{SHADERS.length} 种效果</span></div>
             <div className="effects-list">{SHADERS.map(effect => <button className={`effect-card ${shader === effect.id ? 'selected' : ''}`} aria-pressed={shader === effect.id} key={effect.id} onClick={() => { if (effect.id !== shader) { setShader(effect.id); setBackground({ ...EFFECT_BACKGROUNDS[effect.id] }) } setRightTab('shader') }}>
               <EffectPreview effect={effect.id} /><span className="effect-info"><span className="effect-title">{effect.name}{shader === effect.id && <Check size={13} />}</span><span className="effect-tag">{effect.tag}</span></span>
             </button>)}</div>
-          </section>}
+          </section>
+          </TabPane>
         </div>
-        <div className="left-panel-footer"><span className="tiny-dot" />本地工作空间<span>WebGL</span></div>
-      </> : <button className="panel-expand" aria-label="展开模型面板" onClick={() => togglePanel('left')}><Grid2X2 size={19} /><span>模型 / 效果</span><ChevronRight size={13} /></button>}
+      </div>
+      <div className="panel-trigger-wrap" inert={leftOpen} aria-hidden={leftOpen}>
+        <button className="panel-expand" aria-label="展开模型面板" aria-describedby="model-panel-tooltip" aria-expanded={leftOpen} aria-controls="model-panel-content" onClick={() => togglePanel('left')}><Grid2X2 size={19} /></button>
+        <span className="panel-tooltip" id="model-panel-tooltip" role="tooltip">素材与效果</span>
+      </div>
     </aside>
 
-    <aside className={`floating-panel right-panel ${rightOpen ? '' : 'collapsed'}`} aria-label="参数面板">
-      {rightOpen ? <>
+    <aside className="floating-panel right-panel morph-panel" data-open={rightOpen} aria-label="参数面板">
+      <div className="panel-surface" aria-hidden="true" />
+      <div id="settings-panel-content" className="panel-body" inert={!rightOpen} aria-hidden={!rightOpen}>
         <div className="panel-top"><span className="panel-eyebrow">调整与导出</span><button className="icon-button" onClick={() => togglePanel('right')} aria-label="收起参数面板"><ChevronRight size={17} /></button></div>
         <SlidingTabs active={rightTab} label="参数类型">
           <TabButton active={rightTab === 'background'} id="background-tab" controls="background-panel" onClick={() => setRightTab('background')}><Palette size={15} />背景</TabButton>
           <TabButton active={rightTab === 'shader'} id="shader-tab" controls="shader-panel" onClick={() => setRightTab('shader')}><SlidersHorizontal size={15} />Shader</TabButton>
         </SlidingTabs>
-        <div key={`${rightTab}-${shader}`} className="panel-scroll right-scroll">
-          {rightTab === 'background' ? <section id="background-panel" role="tabpanel" aria-labelledby="background-tab">
+        <div className="tab-content-viewport">
+          <TabPane active={rightTab === 'background'} side="left" className="right-scroll">
+          <section id="background-panel" role="tabpanel" aria-labelledby="background-tab">
             <div className="section-heading"><h2>背景颜色</h2><span>纯色</span></div>
             <div className="color-grid">{BACKGROUND_COLORS.map(item => <button key={item.color} className={`color-swatch ${background.color === item.color ? 'selected' : ''}`} aria-label={`背景设为${item.name}`} aria-pressed={background.color === item.color} style={{ background: item.color }} title={item.name} onClick={() => setBackground(prev => ({ ...prev, color: item.color }))}>{background.color === item.color && <Check size={17} color={item.color === '#222631' || item.color === '#4e70ef' ? '#fff' : '#293346'} />}</button>)}</div>
             <ColorPicker label="自定义颜色" value={background.color} className="custom-background-picker" onChange={color=>setBackground(prev=>({...prev,color}))} />
@@ -315,7 +335,10 @@ export default function App() {
             </div>
             <div className="context-note"><Palette size={17} /><p>导出文档包含背景颜色、参考网格和当前光照，可交给 Agent 还原场景。</p></div>
             <button className="text-button reset-background" onClick={() => { setBackground({ ...EFFECT_BACKGROUNDS[shader] }); notify('已恢复当前效果的默认背景') }}><RotateCcw size={13} />重置背景</button>
-          </section> : <section id="shader-panel" role="tabpanel" aria-labelledby="shader-tab">
+          </section>
+          </TabPane>
+          <TabPane active={rightTab === 'shader'} side="right" className="right-scroll" resetKey={shader}>
+          <section id="shader-panel" role="tabpanel" aria-labelledby="shader-tab">
             <div className="effect-heading"><div><span className="small-label">当前效果</span><h2>{currentShader.name}</h2></div><button className="icon-button subtle" aria-label="重置 Shader 参数" title="重置效果参数" onClick={() => { if (isParticle) { setParticle(DEFAULT_PARTICLE); stageRef.current?.resetParticle() } else if (isSurfaceShader(shader)) { setSurface(DEFAULT_SURFACE); stageRef.current?.setDissolveProgress(0) } else if(isReferenceShader(shader)) setReference(DEFAULT_REFERENCE); else setParams(DEFAULT_PARAMS); notify('Shader 参数已恢复默认') }}><RotateCcw size={15} /></button></div>
             <div className="shader-parameters">
               {isParticle && <>
@@ -427,10 +450,15 @@ export default function App() {
               <Parameter label="模型缩放" value={view.scale} {...MODEL_SCALE_RANGE} suffix="×" onChange={scale => { stageRef.current?.syncScale(scale); onScaleChange(scale) }} />
               <details className="pose-settings"><summary>{isParticle ? '目标模型姿态' : '模型姿态'} <ChevronDown size={13} /></summary><Parameter label="X 轴旋转" value={view.rotationX} min={-180} max={180} suffix="°" onChange={v => changeView('rotationX', v)} /><Parameter label="Y 轴旋转" value={view.rotationY} min={-180} max={180} suffix="°" onChange={v => changeView('rotationY', v)} /><Parameter label="Z 轴旋转" value={view.rotationZ} min={-180} max={180} suffix="°" onChange={v => changeView('rotationZ', v)} /></details>
             </div>
-          </section>}
+          </section>
+          </TabPane>
         </div>
         <div className="export-footer"><div className="export-summary"><FileJson size={14} /><span>{rightTab === 'background' ? '背景与光照配置' : isParticle ? 'SVG、粒子源码与动画配置' : '源码、参数与场景配置'}</span><label className="format-select"><span className="sr-only">导出格式</span><select value={format} onChange={e => setFormat(e.target.value as ExportFormat)}><option value="json">JSON</option><option value="md">Markdown</option></select><ChevronDown size={11} /></label></div><button className="export-button" disabled={copying || (rightTab === 'shader' && (loading || !!stageError || uploading || (isParticle && (!particlePlayback.ready || particlePlaying))))} onClick={exportCurrent}>{format === 'md' ? <Copy size={16} /> : <ArrowDownToLine size={16} />}{copying ? '正在复制…' : format === 'md' ? '复制到剪贴板' : rightTab === 'background' ? '导出背景' : '导出效果'}<ArrowUpRight size={15} /></button><span className="export-hint">{isParticle && particlePlaying && rightTab === 'shader' ? '动画完成后可导出完整效果' : '把文档与模型交给 Agent，复现你的效果'}</span></div>
-      </> : <button className="panel-expand" aria-label="展开参数面板" onClick={() => togglePanel('right')}><SlidersHorizontal size={19} /><span>调整 / 导出</span><ChevronLeft size={13} /></button>}
+      </div>
+      <div className="panel-trigger-wrap" inert={rightOpen} aria-hidden={rightOpen}>
+        <button className="panel-expand" aria-label="展开参数面板" aria-describedby="settings-panel-tooltip" aria-expanded={rightOpen} aria-controls="settings-panel-content" onClick={() => togglePanel('right')}><SlidersHorizontal size={19} /></button>
+        <span className="panel-tooltip" id="settings-panel-tooltip" role="tooltip">调整与导出</span>
+      </div>
     </aside>
 
     {(loading || stageError) && <div className={`stage-message ${stageError ? 'error-message' : ''}`} role={stageError ? 'alert' : 'status'}>{stageError ? <><Box size={26} /><strong>暂时无法显示模型</strong><p>{stageError}</p><button onClick={() => setRetryKey(v => v + 1)}>重新加载</button>{model.source === 'upload' && <button className="text-button" onClick={() => selectModel('claw')}>返回默认模型</button>}</> : <><LoaderCircle className="spin" size={25} /><span>正在准备 {model.name}…</span></>}</div>}
