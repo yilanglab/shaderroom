@@ -9,6 +9,13 @@ export const DEFAULT_MODELS: ModelEntry[] = [
 ]
 export const SHADERS: { id: ShaderId; name: string; description: string; tag: string }[] = [
   { id: 'original', name: '原始材质', description: '查看模型自身的颜色与材质', tag: '基础' },
+  { id: 'comic-line', name: '漫画线描', description: '白色填充与清晰的轮廓、结构墨线', tag: '漫画 · 线稿' },
+  { id: 'lens-distortion', name: '流动透镜', description: '鼠标周围的放大、折射与轻微色散', tag: '鼠标 · 光学' },
+  { id: 'liquid-ripple', name: '液面涟漪', description: '光滑影像随鼠标泛起波纹', tag: '鼠标 · 流体' },
+  { id: 'magnetic-pull', name: '磁力拉伸', description: '表面向鼠标聚拢并弹性恢复', tag: '鼠标 · 软体' },
+  { id: 'prism-trail', name: '棱镜拖影', description: '移动时产生彩色分离与短暂拖尾', tag: '鼠标 · 色散' },
+  { id: 'material-reveal', name: '材质显影', description: '金属表面显露发光结构网格', tag: '鼠标 · 显影' },
+  { id: 'elastic-indent', name: '弹性压痕', description: '局部表面凹陷与外围隆起', tag: '鼠标 · 触感' },
   { id: 'cross-stitch', name: '十字绣', description: '以交叉针脚重绘光影', tag: 'CLAW 原版' },
   { id: 'halftone', name: '半调网点', description: '用大小变化的圆点表现明暗', tag: '印刷' },
   { id: 'pixelate', name: '像素化', description: '将连续画面化为像素色块', tag: '像素' },
@@ -25,6 +32,7 @@ export const SHADERS: { id: ShaderId; name: string; description: string; tag: st
   { id: 'particle-morph', name: '粒子变形', description: '从 AMS 标志旋转变为模型', tag: '动画' },
 ]
 export const DEFAULT_PARAMS: ShaderParams = {
+  comicWidth: 1.2, comicDetail: .3, comicInk: '#292b2c', comicPaper: '#ffffff',
   asciiSize: 24, asciiRandomize: false, asciiSpeed: 3,
   gridSize: 14, thickness: 0.25, threshold1: 0.64, threshold2: 0.97,
   lightColor: '#8cc4ff', shadowColor: '#233140', highlightColor: '#ffffff', dotSize: 0.46,
@@ -33,6 +41,13 @@ export const DEFAULT_PARAMS: ShaderParams = {
 export const DEFAULT_BACKGROUND: BackgroundSettings = { color: '#4e70ef', grid: true, gridSize: 64, gridOpacity: 0.08 }
 // Backgrounds are independent of lighting and remain editable after selection.
 export const EFFECT_BACKGROUNDS: Record<ShaderId, BackgroundSettings> = {
+  'comic-line': { ...DEFAULT_BACKGROUND, color: '#f7f7f5', grid: true, gridSize: 48, gridOpacity: .14 },
+  'lens-distortion': { ...DEFAULT_BACKGROUND, color: '#b8c9de', grid: true, gridOpacity: .14 },
+  'liquid-ripple': { ...DEFAULT_BACKGROUND, color: '#183a49', grid: false },
+  'magnetic-pull': { ...DEFAULT_BACKGROUND, color: '#282238', grid: false },
+  'prism-trail': { ...DEFAULT_BACKGROUND, color: '#10131f', grid: false },
+  'material-reveal': { ...DEFAULT_BACKGROUND, color: '#15242d', grid: false },
+  'elastic-indent': { ...DEFAULT_BACKGROUND, color: '#cfbcad', grid: false },
   original: { ...DEFAULT_BACKGROUND, color: '#dce1e8', gridOpacity: 0.18 },
   'cross-stitch': { ...DEFAULT_BACKGROUND },
   halftone: { ...DEFAULT_BACKGROUND, color: '#d6bea0', grid: false },

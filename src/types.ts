@@ -1,6 +1,7 @@
 import type { ReferenceSettings } from './render/referenceEffects'
+import type { NewInteractiveId, InteractionSettings, InteractionSnapshot } from './render/interaction'
 import type { SurfaceSettings, SurfaceSnapshot, DissolveState } from './render/surfaceEffects'
-export type ShaderId = 'cross-stitch' | 'original' | 'halftone' | 'pixelate' | 'toon' | 'particle-morph' | 'ascii' | 'engraving' | 'hologram' | 'iridescent' | 'dissolve' | 'glyph-matrix' | 'adaptive-grid' | 'word-mosaic' | 'pixel-glyph'
+export type ShaderId = NewInteractiveId | 'comic-line' | 'cross-stitch' | 'original' | 'halftone' | 'pixelate' | 'toon' | 'particle-morph' | 'ascii' | 'engraving' | 'hologram' | 'iridescent' | 'dissolve' | 'glyph-matrix' | 'adaptive-grid' | 'word-mosaic' | 'pixel-glyph'
 export type ModelKind = 'fbx' | 'glb' | 'sphere' | 'torus-knot' | 'rounded-cube'
 export interface ModelEntry {
   id: string
@@ -14,6 +15,10 @@ export interface ModelEntry {
   thumbnail?: string
 }
 export interface ShaderParams {
+  comicWidth?: number
+  comicDetail?: number
+  comicInk?: string
+  comicPaper?: string
   asciiSize: number
   asciiRandomize: boolean
   asciiSpeed: number
@@ -97,6 +102,7 @@ export interface SceneSnapshot {
   surface?: SurfaceSnapshot
   ascii?: { elapsed: number; tick: number; randomize: boolean }
   particle?: ParticleSnapshot
+  interaction?: InteractionSnapshot
 }
 export interface StageHandle {
   resetView(): void
@@ -108,6 +114,7 @@ export interface StageHandle {
   getSnapshot(): SceneSnapshot
 }
 export interface StageProps {
+  interaction: InteractionSettings
   model: ModelEntry
   shader: ShaderId
   params: ShaderParams
@@ -127,6 +134,7 @@ export interface StageProps {
 export type ExportScope = 'background' | 'shader'
 export type ExportFormat = 'json' | 'md'
 export interface ExportInput {
+  interaction?: InteractionSettings
   scope: ExportScope
   format: ExportFormat
   model: ModelEntry

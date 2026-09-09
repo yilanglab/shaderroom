@@ -1,4 +1,5 @@
 import * as THREE from 'three'
+import { INTERACTION_GLSL, interactionUniforms } from './interaction'
 
 export const REFERENCE_IDS = ['glyph-matrix', 'adaptive-grid', 'word-mosaic', 'pixel-glyph'] as const
 export type ReferenceId = typeof REFERENCE_IDS[number]
@@ -79,6 +80,7 @@ uniform float wordHeight,wordGap,wordFill;
 uniform vec3 wordColor,wordDarkColor,wordLightColor;
 uniform float pixelSize,pixelAspect,pixelGap,pixelLevels,pixelBrightness,pixelCharacters,pixelScan;
 uniform vec3 pixelColor;
+${INTERACTION_GLSL}
 float hash(vec2 p){return fract(sin(dot(p,vec2(127.1,311.7)))*43758.5453);}
 float lum(vec4 s){return dot(s.rgb,vec3(.299,.587,.114));}
 vec4 source(vec2 p){return texture2D(tDiffuse,clamp(p/resolution,vec2(0.0),vec2(1.0)));}
@@ -90,12 +92,14 @@ float bitmap(vec2 local,float kind){
 }
 void main(){
  vec2 p=vUv*resolution;
+ float hover = hoverWeight(vUv) * uStrength;
  if(mode<.5){
   float size=max(4.,glyphSize); vec2 cell=floor(p/size); vec4 s=source((cell+.5)*size);
   if(s.a<.08){gl_FragColor=vec4(0.);return;}
   float b=clamp((sqrt(max(lum(s),0.))-.5)*glyphContrast*.7+.45,0.,1.);
   vec2 q=(fract(p/size)-.5)*size; float r=size*.29;
-  float rnd=hash(cell+floor(tick)*.173);
+  float localTick = floor(uInteractionTime*uInteractionSpeed*8.0) * step(hash(cell+37.0),hover) * step(.001,hover);
+  float rnd=hash(cell+floor(tick)*.173+localTick*.317);
   float choice=b<.50?(rnd<.60?0.:1.):b<.60?(rnd<.15?0.:1.):(rnd<.75?3.:1.);
   float dist=choice<1.?min(abs(q.x-q.y),abs(q.x+q.y))*.7071:abs(max(abs(q.x),abs(q.y))-r);
   float inside=1.-smoothstep(r,r+.7,max(abs(q.x),abs(q.y)));
@@ -103,18 +107,21 @@ void main(){
   float outside=max(max(abs(q.x),abs(q.y))-r,0.);
   float glowDistance=choice>2.5?outside:dist;
   float halo=exp(-glowDistance*glowDistance/3.)*exp(-outside*outside/3.)*glyphGlow;
-  float opacity=clamp(ink+halo,0.,1.);
-  gl_FragColor=vec4(glyphColor*(.6+.4*b),opacity*s.a);return;
+  float opacity=clamp(ink+halo*(1.0+hover*2.0),0.,1.);
+  gl_FragColor=vec4(glyphColor*(.6+.4*b+hover*.4),opacity*s.a);return;
  }
  if(mode<1.5){
   float size=max(8.,adaptiveSize); vec2 origin=floor(p/size)*size;
-  for(int depth=0;depth<4;depth++){
+  for(int depth=0;depth<6;depth++){
    vec4 a=source(origin+size*vec2(.15,.15)),b=source(origin+size*vec2(.85,.15));
    vec4 c=source(origin+size*vec2(.15,.85)),d=source(origin+size*vec2(.85,.85)),e=source(origin+size*.5);
    float lo=min(min(lum(a)*a.a,lum(b)*b.a),min(lum(c)*c.a,min(lum(d)*d.a,lum(e)*e.a)));
    float hi=max(max(lum(a)*a.a,lum(b)*b.a),max(lum(c)*c.a,max(lum(d)*d.a,lum(e)*e.a)));
    float amin=min(min(a.a,b.a),min(c.a,min(d.a,e.a))),amax=max(max(a.a,b.a),max(c.a,max(d.a,e.a)));
-   if(float(depth)>=adaptiveDepth || max(hi-lo,(amax-amin)*.6)<adaptiveThreshold)break;
+   float parentHover = hoverWeight((origin+size*.5)/resolution)*uStrength;
+   float extraDepth = floor(parentHover*3.0+.15);
+   if(float(depth)>=min(6.0,min(4.0,adaptiveDepth)+extraDepth))break;
+   if(max(hi-lo,(amax-amin)*.6)<adaptiveThreshold && parentHover<.16)break;
    size*=.5; origin=floor(p/size)*size;
   }
   vec2 local=p-origin; float border=line(min(min(local.x,local.y),min(size-local.x,size-local.y)),adaptiveLineWidth*.5);
@@ -125,6 +132,9 @@ void main(){
  }
  if(mode<2.5){
   float h=max(8.,wordHeight); float row=floor(p.y/h); float unit=h*1.35;
+  float rowHover=hoverWeight(vec2(uPointer.x,(row+.5)*h/resolution.y))*uStrength;
+  float horizontalEnvelope=1.0-smoothstep(0.0,1.0,abs(vUv.x-uPointer.x)*uInteractionResolution.x/max(uRadius,1.0));
+  p.x += sin(row*1.7+uInteractionTime*uInteractionSpeed*2.0)*rowHover*horizontalEnvelope*h*.35;
   float block=floor(p.x/(unit*4.)); float split=1.+floor(hash(vec2(block,row))*3.);
   float offset=mod(p.x,unit*4.); float section=step(split*unit,offset);
   float start=block*4.*unit+section*split*unit; float width=mix(split,4.-split,section)*unit;
@@ -138,9 +148,12 @@ void main(){
   float text=texture2D(wordAtlas,atlasUV).a;
   float b=clamp(lum(s),0.,1.); vec3 fill=mix(wordDarkColor,wordLightColor,b);
   float opacity=max(text,wordFill)*mask*s.a;
-  gl_FragColor=vec4(mix(fill,wordColor,text),opacity);return;
+  gl_FragColor=vec4(mix(fill,wordColor,text)+wordColor*hover*.22,opacity);return;
  }
  vec2 size=vec2(max(4.,pixelSize)*max(.5,pixelAspect),max(4.,pixelSize));
+ vec2 parentCenter=(floor(p/size)+.5)*size/resolution;
+ float refinement=floor(hoverWeight(parentCenter)*uStrength*3.0+.15);
+ size=max(vec2(2.0),size/exp2(refinement));
  vec2 cell=floor(p/size); vec4 s=source((cell+.5)*size);
  if(s.a<.08){gl_FragColor=vec4(0.);return;}
  vec2 q=fract(p/size); float gap=min(min(q.x*size.x,(1.-q.x)*size.x),min(q.y*size.y,(1.-q.y)*size.y));
@@ -164,7 +177,7 @@ export function buildReferenceUniforms(id: ReferenceId, settings: ReferenceSetti
 }
 export function createReferenceMaterial(texture: THREE.Texture) {
   return new THREE.ShaderMaterial({ vertexShader: REFERENCE_VERTEX, fragmentShader: REFERENCE_FRAGMENT,
-    uniforms: { tDiffuse: { value: texture }, wordAtlas: { value: null } }, depthTest: false, depthWrite: false, transparent: false, blending: THREE.NoBlending, toneMapped: false })
+    uniforms: { ...interactionUniforms(), tDiffuse: { value: texture }, wordAtlas: { value: null } }, depthTest: false, depthWrite: false, transparent: false, blending: THREE.NoBlending, toneMapped: false })
 }
 export function updateReferenceMaterial(material: THREE.ShaderMaterial, settings: ReferenceSettings, id: ReferenceId, state: ReferenceState) {
   for (const [name, value] of Object.entries(buildReferenceUniforms(id, settings, state))) {

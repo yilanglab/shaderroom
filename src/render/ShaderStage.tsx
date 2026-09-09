@@ -1,4 +1,7 @@
 import { REFERENCE_INPUT_MATERIAL, createReferenceMaterial, getReferenceAtlasDataUrl, updateReferenceMaterial, disposeReferenceMaterial, isReferenceShader } from './referenceEffects'
+import { advanceInteraction, isNewInteractive, supportsInteraction, interactionUniforms, updateInteractionUniforms, type InteractionSnapshot } from './interaction'
+import { createInteractiveMaterial, updateInteractiveMaterial, usesInteractiveMesh } from './interactiveEffects'
+import { TessellateModifier } from 'three/addons/modifiers/TessellateModifier.js'
 import { registerColorCapture } from './colorSampling'
 import { advanceDissolve, buildSurfaceUniforms, createDissolve, createSurfaceMaterial, isSurfaceShader, playDissolve, updateSurfaceMaterial } from './surfaceEffects'
 import { parseStaticFbx } from './fbx'
@@ -98,6 +101,12 @@ const ShaderStage = forwardRef<StageHandle, StageProps>(function ShaderStage(pro
     let dissolveNotice = 0
     let asciiElapsed = 0
     let previousTime = 0
+    let pointerInside = false
+    let pointerDown = false
+    const pointerTarget = new THREE.Vector2(.5,.5)
+    const interactionState: InteractionSnapshot = { pointer: [.5,.5], velocity: [0,0], amount: 0, time: 0 }
+    let interactionKey = ''
+    const refinedGeometries = new Map<THREE.Mesh, { original: THREE.BufferGeometry; refined: THREE.BufferGeometry }>()
     let fpsStart = 0
     let fpsFrames = 0
     const reducedMotionQuery = window.matchMedia('(prefers-reduced-motion: reduce)')
@@ -119,6 +128,12 @@ const ShaderStage = forwardRef<StageHandle, StageProps>(function ShaderStage(pro
       return
     }
     renderer.setClearColor(0x000000, 0)
+    renderer.debug.onShaderError = (gl, program, vertex, fragment) => {
+      const details=[gl.getProgramInfoLog(program),gl.getShaderInfoLog(vertex),gl.getShaderInfoLog(fragment)].filter(Boolean).join('\n')
+      console.error('Shader Room shader compilation failed',details)
+      if(import.meta.env.DEV)host.dataset.shaderError=details
+      propsRef.current.onError('当前效果无法编译，请切换其他效果或重新加载。')
+    }
     renderer.outputColorSpace = THREE.SRGBColorSpace
     renderer.toneMapping = THREE.NoToneMapping
     renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2))
@@ -152,6 +167,21 @@ const ShaderStage = forwardRef<StageHandle, StageProps>(function ShaderStage(pro
       onScaleChange: (scale) => propsRef.current.onScaleChange(scale),
       isEnabled: () => alive && loadState === 'ready',
     })
+    const pointerMove = (event: PointerEvent) => {
+      pointerInside = event.pointerType !== 'touch' && event.buttons === 0 && !pointerDown
+      if (!pointerInside) return
+      const rect=renderer.domElement.getBoundingClientRect()
+      pointerTarget.set((event.clientX-rect.left)/rect.width,1-(event.clientY-rect.top)/rect.height)
+    }
+    const pointerLeave = () => { pointerInside=false }
+    const pointerPress = () => { pointerDown=true;pointerInside=false }
+    const pointerRelease = () => { pointerDown=false;pointerInside=false }
+    renderer.domElement.addEventListener('pointermove',pointerMove)
+    renderer.domElement.addEventListener('pointerleave',pointerLeave)
+    renderer.domElement.addEventListener('pointerdown',pointerPress)
+    window.addEventListener('pointerup',pointerRelease)
+    window.addEventListener('pointercancel',pointerRelease)
+    window.addEventListener('blur',pointerRelease)
 
     const lights = [new THREE.AmbientLight(), new THREE.DirectionalLight(), new THREE.DirectionalLight()] as const
     scene.add(...lights, lights[1].target, lights[2].target)
@@ -179,10 +209,15 @@ const ShaderStage = forwardRef<StageHandle, StageProps>(function ShaderStage(pro
       minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter,
     })
     renderTarget.texture.colorSpace = THREE.LinearSRGBColorSpace
+    renderTarget.depthTexture = new THREE.DepthTexture(resolution.x, resolution.y)
+    const comicNormal = new THREE.MeshNormalMaterial({ side: THREE.DoubleSide })
     const postScene = new THREE.Scene()
     const postCamera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1)
     const postMaterial = new THREE.ShaderMaterial({
       uniforms: {
+        ...interactionUniforms(),
+        tDepth: { value: renderTarget.depthTexture }, cameraNear: { value: camera.near }, cameraFar: { value: camera.far },
+        comicWidth: { value: 1.2 }, comicDetail: { value: .3 }, comicInk: { value: new THREE.Color() }, comicPaper: { value: new THREE.Color() },
         tDiffuse: { value: renderTarget.texture }, resolution: { value: resolution }, mode: { value: 1 },
         asciiSize: { value: 24 }, asciiTick: { value: 0 }, gridSize: { value: 14 }, thickness: { value: 0.25 }, threshold1: { value: 0.64 }, threshold2: { value: 0.97 },
         lightColor: { value: new THREE.Color() }, shadowColor: { value: new THREE.Color() }, highlightColor: { value: new THREE.Color() },
@@ -192,8 +227,44 @@ const ShaderStage = forwardRef<StageHandle, StageProps>(function ShaderStage(pro
       transparent: false, depthTest: false, depthWrite: false, blending: THREE.NoBlending, toneMapped: false,
     })
     const referenceMaterial = createReferenceMaterial(renderTarget.texture)
+    const interactivePost = createInteractiveMaterial(false)
+    interactivePost.uniforms.tDiffuse.value=renderTarget.texture
+    const interactiveMesh = createInteractiveMaterial(true)
     const quad = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), postMaterial)
     postScene.add(quad)
+
+    function restoreRefinement() {
+      for(const [mesh, item] of refinedGeometries){mesh.geometry=item.original;item.refined.dispose()}
+      refinedGeometries.clear()
+    }
+    function refineForInteraction() {
+      if(!active || !['magnetic-pull','elastic-indent'].includes(propsRef.current.shader))return
+      let budget=240000
+      for(const mesh of active.materials.keys()){
+        const geometry=mesh.geometry
+        if((mesh as THREE.SkinnedMesh).isSkinnedMesh || (mesh as THREE.InstancedMesh).isInstancedMesh || Object.keys(geometry.morphAttributes).length)continue
+        const triangles=(geometry.index?.count??geometry.attributes.position.count)/3
+        const iterations=Math.min(7,Math.floor(Math.log2(Math.min(80000,budget)/Math.max(triangles,1))))
+        if(iterations<1)continue
+        geometry.computeBoundingBox()
+        const edge=geometry.boundingBox!.getSize(new THREE.Vector3()).length()/24
+        if(edge<=0)continue
+        // GLB quantization/interleaving must be decoded before TessellateModifier,
+        // whose implementation reads raw attribute arrays rather than getX/getY.
+        const decoded=geometry.clone()
+        for(const name of ['position','normal','color','uv','uv1']) {
+          const attribute=geometry.getAttribute(name)
+          if(!attribute)continue
+          const values=new Float32Array(attribute.count*attribute.itemSize)
+          for(let vertex=0;vertex<attribute.count;vertex++)for(let component=0;component<attribute.itemSize;component++)values[vertex*attribute.itemSize+component]=attribute.getComponent(vertex,component)
+          decoded.setAttribute(name,new THREE.BufferAttribute(values,attribute.itemSize))
+        }
+        const refined=new TessellateModifier(edge,iterations).modify(decoded)
+        decoded.dispose()
+        refinedGeometries.set(mesh,{original:geometry,refined});mesh.geometry=refined
+        budget-=refined.attributes.position.count/3
+      }
+    }
 
     function updatePose() {
       const { view, shader } = propsRef.current
@@ -268,13 +339,20 @@ const ShaderStage = forwardRef<StageHandle, StageProps>(function ShaderStage(pro
       const { shader, params } = propsRef.current
       const uniforms = postMaterial.uniforms
       uniforms.mode.value = SHADER_MODES[shader]
+      uniforms.cameraNear.value = camera.near; uniforms.cameraFar.value = camera.far
+      uniforms.comicWidth.value = (params.comicWidth ?? 1.2) * renderer.getPixelRatio()
+      uniforms.comicDetail.value = params.comicDetail ?? .3
+      setDisplayColor(uniforms.comicInk.value, params.comicInk ?? '#292b2c')
+      setDisplayColor(uniforms.comicPaper.value, params.comicPaper ?? '#ffffff')
       uniforms.asciiTick.value = Math.floor(asciiElapsed * (params.asciiSpeed ?? 3))
       for (const key of ['asciiSize', 'gridSize', 'thickness', 'threshold1', 'threshold2', 'dotSize', 'contrast', 'levels', 'saturation'] as const) uniforms[key].value = params[key] ?? (key === 'asciiSize' ? 24 : 0)
       setDisplayColor(uniforms.lightColor.value as THREE.Color, params.lightColor)
       setDisplayColor(uniforms.shadowColor.value as THREE.Color, params.shadowColor)
       setDisplayColor(uniforms.highlightColor.value as THREE.Color, params.highlightColor)
       if (active && appliedShader !== shader) {
-        for (const [mesh, material] of active.materials) mesh.material = shader === 'original' || shader === 'particle-morph' ? material : isSurfaceShader(shader) ? surfaceMaterial : isReferenceShader(shader) ? referenceBaseMaterial : whiteMaterial
+        restoreRefinement()
+        refineForInteraction()
+        for (const [mesh, material] of active.materials) mesh.material = usesInteractiveMesh(shader) ? interactiveMesh : isNewInteractive(shader) || shader === 'original' || shader === 'particle-morph' ? material : isSurfaceShader(shader) ? surfaceMaterial : isReferenceShader(shader) ? referenceBaseMaterial : whiteMaterial
         dissolveState = createDissolve()
         propsRef.current.onDissolveState(dissolveState)
         appliedShader = shader
@@ -302,6 +380,12 @@ const ShaderStage = forwardRef<StageHandle, StageProps>(function ShaderStage(pro
       updateUniforms()
       updateLighting()
       ensureParticles()
+      for(const material of [postMaterial,referenceMaterial,surfaceMaterial,interactivePost,interactiveMesh]) updateInteractionUniforms(material,propsRef.current.interaction,interactionState,width,height)
+      if(particlePoints)updateInteractionUniforms(particlePoints.material,propsRef.current.interaction,interactionState,width,height)
+      if(isNewInteractive(propsRef.current.shader)) {
+        updateInteractiveMaterial(interactivePost,propsRef.current.shader,propsRef.current.interaction,propsRef.current.lighting)
+        updateInteractiveMaterial(interactiveMesh,propsRef.current.shader,propsRef.current.interaction,propsRef.current.lighting)
+      }
       if (particlePoints && propsRef.current.shader === 'particle-morph') {
         updateParticleUniforms(particlePoints, buildParticleUniformValues({ settings: propsRef.current.particle, view: propsRef.current.view, snapshot: particleSnapshot(particleTimeline), lighting: propsRef.current.lighting, pixelRatio: renderer.getPixelRatio(), camera: { position: camera.position.toArray(), target: controls.target.toArray() } }))
       }
@@ -309,17 +393,19 @@ const ShaderStage = forwardRef<StageHandle, StageProps>(function ShaderStage(pro
       if (isSurfaceShader(surfaceId)) {
         updateSurfaceMaterial(surfaceMaterial, buildSurfaceUniforms(surfaceId, propsRef.current.surface, { time: surfaceTime, dissolve: dissolveState }, propsRef.current.lighting, runtime.getSnapshot()), surfaceId)
       }
-      if (propsRef.current.shader === 'original' || propsRef.current.shader === 'particle-morph' || isSurfaceShader(surfaceId)) {
+      if (propsRef.current.shader === 'original' || propsRef.current.shader === 'particle-morph' || isSurfaceShader(surfaceId) || usesInteractiveMesh(surfaceId)) {
         renderer.setRenderTarget(null)
         renderer.render(scene, camera)
       } else {
         renderer.setRenderTarget(renderTarget)
+        if (surfaceId === 'comic-line') scene.overrideMaterial = comicNormal
         renderer.render(scene, camera)
+        scene.overrideMaterial = null
         renderer.setRenderTarget(null)
         if(isReferenceShader(surfaceId)) {
           updateReferenceMaterial(referenceMaterial,propsRef.current.reference,surfaceId,{time:referenceTime,viewport:{width,height,pixelRatio:renderer.getPixelRatio()}})
           quad.material=referenceMaterial
-        } else quad.material=postMaterial
+        } else quad.material=isNewInteractive(surfaceId)?interactivePost:postMaterial
         renderer.render(postScene, postCamera)
       }
     }
@@ -388,6 +474,7 @@ const ShaderStage = forwardRef<StageHandle, StageProps>(function ShaderStage(pro
       normalized.add(root)
       if (active) {
         disposeParticles(false)
+        restoreRefinement()
         restoreMaterials(active)
         pose.remove(active.root)
         disposeObject(active.root)
@@ -412,6 +499,7 @@ const ShaderStage = forwardRef<StageHandle, StageProps>(function ShaderStage(pro
 
     const runtime: StageRuntime = {
       load(entry) {
+        pointerInside=false;interactionState.amount=0;interactionState.velocity=[0,0]
         disposeParticles()
         particleFailedModel = null
         if (active && propsRef.current.shader === 'particle-morph') active.root.visible = false
@@ -506,6 +594,7 @@ const ShaderStage = forwardRef<StageHandle, StageProps>(function ShaderStage(pro
         updatePose()
         if(isReferenceShader(propsRef.current.shader)) updateReferenceMaterial(referenceMaterial,propsRef.current.reference,propsRef.current.shader,{time:referenceTime,viewport:{width,height,pixelRatio:renderer.getPixelRatio()}})
         return {
+          interaction: { ...interactionState, pointer: [...interactionState.pointer], velocity: [...interactionState.velocity] },
           reducedMotion: reducedMotionQuery.matches,
           camera: { position: camera.position.toArray(), target: controls.target.toArray(), fov: camera.fov, near: camera.near, far: camera.far },
           model: { position: pose.position.toArray(), rotation: [pose.rotation.x, pose.rotation.y, pose.rotation.z], scale: pose.scale.toArray() },
@@ -563,6 +652,12 @@ const ShaderStage = forwardRef<StageHandle, StageProps>(function ShaderStage(pro
       const delta = previousTime ? Math.min((time - previousTime) / 1000, 0.05) : 0
       previousTime = time
       const { shader, surface } = propsRef.current
+      const key=propsRef.current.model.id+':'+shader
+      if(interactionKey!==key){interactionKey=key;interactionState.amount=0;interactionState.velocity=[0,0];pointerInside=false;interactionState.time=0}
+      const interaction=propsRef.current.interaction
+      const eligible=pointerInside&&!pointerDown&&interaction.enabled&&supportsInteraction(shader)&&loadState==='ready'
+      const reduced=reducedMotionQuery.matches
+      advanceInteraction(interactionState,[pointerTarget.x,pointerTarget.y],delta,interaction.follow,eligible,reduced)
       if(isReferenceShader(shader) && propsRef.current.reference.animate && !reducedMotionQuery.matches) referenceTime+=delta
       if (!reducedMotionQuery.matches && ((shader === 'hologram' && surface.hologramAnimate) || (shader === 'iridescent' && surface.metalAnimate))) surfaceTime += delta
       if (shader === 'dissolve' && dissolveState.playing) {
@@ -596,6 +691,12 @@ const ShaderStage = forwardRef<StageHandle, StageProps>(function ShaderStage(pro
       runtimeRef.current = null
       cancelAnimationFrame(frameId)
       unregisterCapture()
+      renderer.domElement.removeEventListener('pointermove',pointerMove)
+      renderer.domElement.removeEventListener('pointerleave',pointerLeave)
+      renderer.domElement.removeEventListener('pointerdown',pointerPress)
+      window.removeEventListener('pointerup',pointerRelease)
+      window.removeEventListener('pointercancel',pointerRelease)
+      window.removeEventListener('blur',pointerRelease)
       observer.disconnect()
       window.removeEventListener('resize', resize)
       renderer.domElement.removeEventListener('webglcontextlost', contextLost)
@@ -604,6 +705,7 @@ const ShaderStage = forwardRef<StageHandle, StageProps>(function ShaderStage(pro
       controls.dispose()
       disposeDecodersWhenIdle()
       disposeParticles(false)
+      restoreRefinement()
       if (active) { restoreMaterials(active); disposeObject(active.root) }
       referenceBaseMaterial.dispose()
       disposeReferenceMaterial(referenceMaterial)
@@ -611,6 +713,8 @@ const ShaderStage = forwardRef<StageHandle, StageProps>(function ShaderStage(pro
       whiteMaterial.dispose()
       quad.geometry.dispose()
       postMaterial.dispose()
+      comicNormal.dispose()
+      interactivePost.dispose();interactiveMesh.dispose()
       renderTarget.dispose()
       thumbnails.dispose()
       renderer.dispose()

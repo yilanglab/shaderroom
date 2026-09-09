@@ -5,10 +5,13 @@ import { DEFAULT_LIGHTING } from '../defaults'
 import { buildLightRecipe, LIGHTING_CONVENTIONS } from './lighting'
 import { MODEL_SCALE_RANGE, MODEL_ZOOM_WHEEL } from './modelZoom'
 import { PARTICLE_RECIPE } from './particleMorph'
+import { INTERACTION_GLSL } from './interaction'
 
 /** Shared, JSON-safe rendering contract consumed by both the live stage and exports. */
 export const SHADER_MODES: Record<ShaderId, number> = {
+  'comic-line': 21,
   original: 0, 'cross-stitch': 1, halftone: 2, pixelate: 3, toon: 4, 'particle-morph': 5, ascii: 6, engraving: 7, hologram: 8, iridescent: 9, dissolve: 10, 'glyph-matrix': 11, 'adaptive-grid': 12, 'word-mosaic': 13, 'pixel-glyph': 14,
+  'lens-distortion': 15, 'liquid-ripple': 16, 'magnetic-pull': 17, 'prism-trail': 18, 'material-reveal': 19, 'elastic-indent': 20,
 }
 
 export const SCENE_RECIPE = {
@@ -99,8 +102,12 @@ uniform float dotSize;
 uniform float contrast;
 uniform float levels;
 uniform float saturation;
+uniform sampler2D tDepth;
+uniform float cameraNear, cameraFar, comicWidth, comicDetail;
+uniform vec3 comicInk, comicPaper;
 varying vec2 vUv;
 
+${INTERACTION_GLSL}
 float luma(vec3 rgb) { return dot(rgb, vec3(0.299, 0.587, 0.114)); }
 float adjustedBrightness(vec3 rgb) { return clamp((luma(rgb) - 0.5) * contrast + 0.5, 0.0, 1.0); }
 float quantizedBrightness(float value) {
@@ -113,11 +120,37 @@ vec3 palette(float value) {
 }
 ${ASCII_GLSL}
 void main() {
+  if (mode > 20.5) {
+    vec4 center = texture2D(tDiffuse, vUv);
+    float depth = texture2D(tDepth, vUv).x;
+    float z = cameraNear * cameraFar / (cameraFar - depth * (cameraFar-cameraNear));
+    float edge = 0.0;
+    float coverage = center.a;
+    for (int y = -1; y <= 1; y++) for (int x = -1; x <= 1; x++) {
+      vec2 p = vUv + vec2(float(x),float(y)) * comicWidth / resolution;
+      vec4 sampleNormal = texture2D(tDiffuse,p);
+      float d = texture2D(tDepth,p).x;
+      float sampleZ = cameraNear * cameraFar / (cameraFar-d*(cameraFar-cameraNear));
+      float silhouette = abs(center.a-sampleNormal.a);
+      float normalEdge = smoothstep(comicDetail,comicDetail+.12,length(center.rgb-sampleNormal.rgb)*2.0);
+      float depthEdge = smoothstep(.012,.028,abs(z-sampleZ)/max(z,.001));
+      edge = max(edge,max(silhouette,max(normalEdge,depthEdge)*center.a*sampleNormal.a));
+      coverage = max(coverage,sampleNormal.a);
+    }
+    gl_FragColor = vec4(mix(comicPaper,comicInk,edge),coverage);
+    return;
+  }
   if (mode < 0.5) {
     gl_FragColor = texture2D(tDiffuse, vUv);
     return;
   }
   float cellSize = max(gridSize, 1.0);
+  float hover = hoverWeight(vUv) * uStrength;
+  if (mode > 2.5 && mode < 3.5) {
+    vec2 parentCenter = (floor(vUv * resolution / cellSize) + .5) * cellSize / resolution;
+    float refinement = floor(hoverWeight(parentCenter) * uStrength * 3.0 + .15);
+    cellSize = max(1.0, cellSize / exp2(refinement));
+  }
   vec2 cell = mode > 5.5 ? vec2(max(asciiSize, 9.0)*7.0/9.0, max(asciiSize, 9.0)) : vec2(cellSize);
   vec2 gridUV = floor(vUv * resolution / cell) * cell / resolution;
   vec2 centerUV = gridUV + (cell * 0.5) / resolution;
@@ -141,11 +174,16 @@ void main() {
   }
   float brightness = adjustedBrightness(texel.rgb);
   if (mode > 5.5) {
-    gl_FragColor = vec4(palette(brightness), texel.a * asciiMask(brightness, local, floor(vUv * resolution / cell)));
+    vec2 index = floor(vUv * resolution / cell);
+    float noise = fract(sin(dot(index, vec2(12.9898,78.233))) * 43758.5453);
+    float disturbed = step(noise, hover * .95) * step(.001, hover);
+    index += disturbed * vec2(floor(uInteractionTime * uInteractionSpeed * 9.0), 7.0);
+    gl_FragColor = vec4(palette(clamp(brightness + hover * .28,0.0,1.0)), texel.a * asciiMask(brightness, local, index));
   } else if (mode < 2.5) {
-    float radius = clamp(dotSize * (0.25 + 0.75 * brightness), 0.03, 0.7);
+    float radius = clamp(dotSize * (0.25 + 0.75 * brightness) * (1.0 + hover * .7), 0.03, 0.7);
     float edge = 1.0 / cellSize;
-    float alpha = 1.0 - smoothstep(radius - edge, radius + edge, length(local - 0.5));
+    vec2 dotPoint = (local - .5) * vec2(1.0 + hover * .35, 1.0 - hover * .2);
+    float alpha = 1.0 - smoothstep(radius - edge, radius + edge, length(dotPoint));
     gl_FragColor = vec4(palette(brightness), texel.a * alpha);
   } else if (mode < 3.5) {
     gl_FragColor = vec4(palette(quantizedBrightness(brightness)), texel.a);

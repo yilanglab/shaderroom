@@ -8,6 +8,8 @@ import { AMS_LOGO_META, AMS_LOGO_SVG } from '../render/particleLogo'
 import { buildParticleUniformValues, PARTICLE_FRAGMENT_SHADER, PARTICLE_RECIPE, PARTICLE_VERTEX_SHADER } from '../render/particleMorph'
 import { PARTICLE_SAMPLE_SEED, PARTICLE_SAMPLING_RECIPE } from '../render/particleSampling'
 import { SCENE_RECIPE, SHADER_FRAGMENT, SHADER_MODES, SHADER_VERTEX } from '../render/shaders'
+import { DEFAULT_INTERACTION, INTERACTION_RECIPE, interactionMode, isNewInteractive, supportsInteraction } from '../render/interaction'
+import { INTERACTIVE_POST_VERTEX, INTERACTIVE_POST_FRAGMENT, INTERACTIVE_MESH_VERTEX, INTERACTIVE_MESH_FRAGMENT, INTERACTIVE_EFFECT_RECIPE, buildInteractiveUniformValues, usesInteractiveMesh } from '../render/interactiveEffects'
 import type { BackgroundSettings, ExportInput, LightingSettings, ModelEntry } from '../types'
 
 function backgroundSpec(settings: BackgroundSettings) {
@@ -151,7 +153,7 @@ function particleExportContent(input: ExportInput, lighting: ReturnType<typeof l
   }
 }
 
-export function buildExportSpec(input: ExportInput) {
+function buildEffectSpec(input: ExportInput) {
   const base = {
     schemaVersion: '1.2.0',
     documentType: 'shader-room-export',
@@ -161,6 +163,33 @@ export function buildExportSpec(input: ExportInput) {
     lighting: lightingSpec(input.lighting, input.scope === 'shader' ? input.snapshot.camera : undefined),
   }
   if (input.scope === 'background') return base
+  if (isNewInteractive(input.shader)) {
+    const mode = interactionMode(input.shader)
+    const mesh = usesInteractiveMesh(input.shader)
+    return {
+      ...base,
+      dependencies: { ...packageJson.dependencies },
+      effect: { id: input.shader, name: SHADERS.find(item => item.id === input.shader)?.name ?? input.shader, mode, renderPath: mesh ? 'interactive-direct-mesh' : 'interactive-original-material-postprocess' },
+      parameters: { ...(input.interaction ?? DEFAULT_INTERACTION) },
+      model: modelSpec(input.model), view: { ...input.view }, snapshot: structuredClone(input.snapshot),
+      sceneRecipe: {
+        ...SCENE_RECIPE, lights: base.lighting.lights,
+        material: mesh
+          ? { type: 'ShaderMaterial', instructions: 'Use the interactive mesh source and interactiveEffectRecipe, preserving static skin/morph/instance transforms. Render directly to transparent canvas; no white replacement or fullscreen pass.' }
+          : { type: 'original imported materials', instructions: 'Preserve original materials including alphaTest, maps and embedded textures. Render the lit scene into the transparent linear target, then apply the interactive fullscreen pass.' },
+      },
+      interactiveEffectRecipe: INTERACTIVE_EFFECT_RECIPE,
+      uniforms: { ...buildInteractiveUniformValues(input.shader, input.interaction ?? DEFAULT_INTERACTION, input.lighting), ...(!mesh ? { tDiffuse: 'Original-material linear RGBA8 scene render target; texture binary not embedded' } : {}) },
+      shaders: { vertex: mesh ? INTERACTIVE_MESH_VERTEX : INTERACTIVE_POST_VERTEX, fragment: mesh ? INTERACTIVE_MESH_FRAGMENT : INTERACTIVE_POST_FRAGMENT },
+      reproduction: {
+        assets: 'Use model.instructions and sceneRecipe.loaders, including same-origin Draco/Meshopt/KTX2 decoders. Model binary is not embedded. Preserve imported root transforms and the static initial FBX pose.',
+        snapshot: 'Normalize using sceneRecipe.normalization, then apply snapshot.model to the outer pose group exactly once. Restore snapshot.camera, target and viewport. Do not add view.scale or view Euler angles a second time.',
+        render: mesh ? 'Direct mesh ShaderMaterial with camera-space interaction; apply interactiveEffectRecipe and exact shaders. Shader output is display-sRGB: no second tone mapping or output conversion.' : 'Pass 1 retains original model materials and captures transparent linear RGBA. Pass 2 applies exact interactive shaders and emits display-sRGB. Preserve alpha, clamp offscreen samples, and disable double color conversion. CSS background remains outside the distortion pass.',
+        interaction: 'Restore interaction.snapshot for an exact frame; initialize all interaction.uniforms on the active material. Resume input and clocks using interaction.recipe, independent of model rotation. Radius/resolution are CSS pixels, never multiply them by DPR.',
+      },
+      stats: input.stats ? { ...input.stats } : null,
+    }
+  }
   if (input.shader === 'particle-morph') return { ...base, ...particleExportContent(input, base.lighting) }
   if(isReferenceShader(input.shader)) {
     const settings=input.reference??DEFAULT_REFERENCE
@@ -203,6 +232,13 @@ export function buildExportSpec(input: ExportInput) {
     parameters: { ...params },
     uniforms: {
       tDiffuse: 'Texture from the scene pass WebGLRenderTarget (not embedded)',
+      ...(input.shader === 'comic-line' ? {
+        tDepth: 'WebGLRenderTarget.depthTexture: THREE.DepthTexture with UnsignedIntType; resized with target',
+        cameraNear: snapshot.camera.near, cameraFar: snapshot.camera.far,
+        comicWidth: (params.comicWidth ?? 1.2) * snapshot.viewport.pixelRatio,
+        comicDetail: params.comicDetail ?? .3,
+        comicInk: displaySrgbVector(params.comicInk ?? '#292b2c'), comicPaper: displaySrgbVector(params.comicPaper ?? '#ffffff'),
+      } : {}),
       resolution: [Math.floor(snapshot.viewport.width * snapshot.viewport.pixelRatio), Math.floor(snapshot.viewport.height * snapshot.viewport.pixelRatio)],
       mode: SHADER_MODES[input.shader],
       asciiSize: params.asciiSize ?? 24, asciiTick: input.snapshot.ascii?.tick ?? 0, gridSize: params.gridSize, thickness: params.thickness,
@@ -214,6 +250,7 @@ export function buildExportSpec(input: ExportInput) {
       levels: params.levels, saturation: params.saturation,
     },
     uniformConventions: {
+      ...(input.shader === 'comic-line' ? { comicLine: 'Static normal/depth edge detection, mode 21. Override scene material with THREE.MeshNormalMaterial({side:THREE.DoubleSide}) for the offscreen pass, then restore scene.overrideMaterial=null. Attach a THREE.DepthTexture to the RGBA render target. Clear RGBA to transparent, depth to 1. Use the actual camera near/far. Sample normals without color-space conversion. comicWidth is CSS line radius multiplied by pixelRatio; colors are display-sRGB. Fullscreen output is straight alpha, NoBlending, toneMapped:false. No time, lighting, or pointer dependence. Surface threshold suppresses smooth normal changes; depth discontinuities preserve overlapping structure.' } : {}),
       resolution: 'Actual WebGL drawing-buffer width and height in physical pixels; floor(viewport CSS size × recorded pixelRatio). Resize the render target and this uniform together.',
       asciiTick: 'Restore snapshot.ascii.tick for the captured glyph distribution. Resume from snapshot.ascii.elapsed only when asciiRandomize is enabled and reduced motion is off; advance by clamped delta and use floor(elapsed*asciiSpeed). The deterministic variant formula is in sceneRecipe.ascii.variation.',
       asciiSize: 'ASCII cell height in physical drawing-buffer pixels. Width is height*7/9; the embedded 5x7 glyph masks require no fonts. Follow sceneRecipe.ascii.',
@@ -252,6 +289,25 @@ export function buildExportSpec(input: ExportInput) {
     },
     stats: input.stats ? { ...input.stats } : null,
     glsl: { vertex: SHADER_VERTEX, fragment: SHADER_FRAGMENT },
+  }
+}
+
+export function buildExportSpec(input: ExportInput) {
+  const spec = buildEffectSpec(input)
+  if (input.scope === 'background' || !supportsInteraction(input.shader) || (!input.interaction && !isNewInteractive(input.shader))) return spec
+  const settings = { ...(input.interaction ?? DEFAULT_INTERACTION) }
+  const state = structuredClone(input.snapshot.interaction ?? { pointer: [.5, .5], velocity: [0, 0], amount: 0, time: 0 })
+  const uniforms = {
+    uPointer: state.pointer, uVelocity: state.velocity,
+    uInteractionResolution: [input.snapshot.viewport.width, input.snapshot.viewport.height],
+    uHover: state.amount,
+    uRadius: settings.radius, uStrength: settings.strength,
+    uInteractionTime: state.time, uInteractionSpeed: settings.speed,
+  }
+  return {
+    ...spec,
+    uniforms: { ...('uniforms' in spec ? spec.uniforms : {}), ...uniforms },
+    interaction: { settings, snapshot: state, uniforms, recipe: INTERACTION_RECIPE },
   }
 }
 
@@ -306,6 +362,16 @@ function markdown(input: ExportInput, spec: ReturnType<typeof buildExportSpec>):
     const { css } = spec.background
     return `# Shader Room · 背景与灯光复现\n\n将以下背景应用于覆盖整个 viewport 的容器，3D canvas 保持透明。颜色采用 CSS sRGB；网格间距和线宽单位为 CSS px。灯光使用下方记录的当前配置。\n\n\`\`\`css\n.shader-room-background {\n  position: fixed;\n  inset: 0;\n  background-color: ${css.backgroundColor};\n  background-image: ${css.backgroundImage};\n  background-size: ${css.backgroundSize};\n  background-position: ${css.backgroundPosition};\n}\n\`\`\`\n\n${lightingInstructions}\n\n## 完整参数\n\n\`\`\`json\n${json}\n\`\`\`\n`
   }
+  if (isNewInteractive(input.shader)) return [
+    '# Shader Room · ' + (SHADERS.find(item => item.id === input.shader)?.name ?? input.shader),
+    '## 重建步骤',
+    '1. 使用 dependencies 固定版本；按 model.instructions 获取模型，配置 sceneRecipe.loaders 同源解码资源。按 sceneRecipe.normalization 归一化，再恢复 snapshot 相机、viewport 与模型外层姿态。不要重复叠加 view.scale 或旋转。',
+    '2. 严格按 effect.renderPath 选择渲染流程：interactive-original-material-postprocess 保留原始材质，将场景渲染到透明 linear RenderTarget，再执行全屏后处理；interactive-direct-mesh 使用专属网格 ShaderMaterial，直接输出至透明画布。禁止套用旧效果的白色替代材质配方。',
+    '3. 完整使用 shaders、uniforms 与 interactiveEffectRecipe。GLSL 已内嵌；输出为 display-sRGB，不重复色彩转换或 tone mapping。保持静态骨骼、morph、实例变换和透明度。按 lighting 复现场景光照。',
+    '4. 接入 interaction.recipe 的鼠标坐标、跟随缓动、进入退出及减少动态效果规则。uPointer 为左下原点的画布 UV，uRadius 与 uInteractionResolution 使用 CSS px，与 DPR 无关。拖动旋转、离开画布、进入面板或触屏时暂停 Hover；开关与模型自转及效果播放独立。',
+    '5. 精确复现当前帧时恢复 interaction.snapshot 并冻结时钟；继续互动时按 interaction.settings 更新 uniforms。背景与网格使用 background.css，位于画布下方，不参与局部折射。',
+    '## 完整 Spec（包含全部 GLSL）', '```json', json, '```', '',
+  ].join('\n\n')
   if (input.shader === 'particle-morph') return particleMarkdown(input, json)
   if(isReferenceShader(input.shader)) return [
     '# Shader Room · '+SHADERS.find(item=>item.id===input.shader)?.name,
@@ -338,6 +404,6 @@ export function buildExportDocument(input: ExportInput): { fileName: string; mim
   return {
     fileName: `shader-room-${input.scope}-${effect}.${input.format}`,
     mimeType: input.format === 'json' ? 'application/json;charset=utf-8' : 'text/markdown;charset=utf-8',
-    content: input.format === 'json' ? `${JSON.stringify(spec, null, 2)}\n` : markdown(input, spec),
+    content: input.format === 'json' ? `${JSON.stringify(spec, null, 2)}\n` : markdown(input, spec) + ('interaction' in spec ? '\n## 鼠标互动复现\n\n完整实现 interaction.settings、interaction.uniforms 和 interaction.recipe。恢复捕获帧使用 interaction.snapshot；恢复交互时按照配方处理左下原点 UV、CSS 像素半径、跟随及强度缓动，按下拖动、进入面板、离开画布时淡出。触屏保持模型操作，系统减少动态效果时冻结互动时钟、清空速度并直接定位。互动开关独立于模型自转与效果播放，不能只复现静态 Shader。\n' : ''),
   }
 }

@@ -1,4 +1,5 @@
 import * as THREE from 'three'
+import { INTERACTION_GLSL, interactionUniforms } from './interaction'
 import type { LightingSettings, SceneSnapshot, ShaderId } from '../types'
 import { buildLightRecipe, displaySrgbVector } from './lighting'
 
@@ -78,6 +79,7 @@ void main() {
 `
 export const SURFACE_FRAGMENT = /* glsl */ `
 uniform float surfaceMode;
+${INTERACTION_GLSL}
 uniform float time;
 uniform float pixelRatio;
 uniform vec3 ambientLightColor;
@@ -143,6 +145,12 @@ void main() {
     float scan=1.0-smoothstep(0.0,hologramScanWidth,abs(vSurfacePosition.y-scanY));
     float alpha=clamp(hologramOpacity*(.12+.6*rim+.3*line+.7*scan),0.0,1.0);
     vec3 color=hologramColor*(.5+.35*lit+.55*rim+.65*scan);
+    vec2 hoverUV = gl_FragCoord.xy / pixelRatio / uInteractionResolution;
+    float hover = hoverWeight(hoverUV) * uStrength;
+    float hoverScan = pow(.5 + .5 * sin((hoverUV.y-uPointer.y)*uInteractionResolution.y*.12-uInteractionTime*uInteractionSpeed*7.0),8.0);
+    float glitch = step(.8,hash3(vec3(floor(hoverUV.y*uInteractionResolution.y/8.0),floor(uInteractionTime*uInteractionSpeed*8.0),3.0)));
+    color += hologramColor * hover * (.35 + hoverScan * .9 + glitch * .4);
+    alpha = clamp(alpha + hover * (.22 + .4 * hoverScan),0.0,1.0);
     gl_FragColor=vec4(clamp(color,0.0,1.0),alpha);
   } else if(surfaceMode<2.5) {
     vec3 r=reflect(-view,n);
@@ -187,7 +195,7 @@ export function buildSurfaceUniforms(id: SurfaceId, settings: SurfaceSettings, s
   return values
 }
 export function createSurfaceMaterial() {
-  return new THREE.ShaderMaterial({ vertexShader: SURFACE_VERTEX, fragmentShader: SURFACE_FRAGMENT, uniforms: {}, transparent: false, blending: THREE.NoBlending, depthTest: true, depthWrite: true, side: THREE.DoubleSide, toneMapped: false })
+  return new THREE.ShaderMaterial({ vertexShader: SURFACE_VERTEX, fragmentShader: SURFACE_FRAGMENT, uniforms: interactionUniforms(), transparent: false, blending: THREE.NoBlending, depthTest: true, depthWrite: true, side: THREE.DoubleSide, toneMapped: false })
 }
 export function updateSurfaceMaterial(material: THREE.ShaderMaterial, values: ReturnType<typeof buildSurfaceUniforms>, id: SurfaceId) {
   material.depthWrite=true

@@ -1,4 +1,8 @@
 import { InfoTip } from './components/InfoTip'
+import { PanelSelect } from './components/PanelSelect'
+import { ListFilter, ArrowRightLeft } from 'lucide-react'
+import { DEFAULT_INTERACTION, isNewInteractive, supportsInteraction, type InteractionSettings } from './render/interaction'
+import { MousePointer2 as HoverPointer } from 'lucide-react'
 import { PromptScopeSelect } from './components/PromptScopeSelect'
 import { PUBLIC_BASE, publicPath } from './lib/publicPath'
 import { DEFAULT_REFERENCE, isReferenceShader, type ReferenceSettings } from './render/referenceEffects'
@@ -122,9 +126,15 @@ export default function App() {
   const dragDepth = useRef(0)
   const toastTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
   const [models, setModels] = useState<ModelEntry[]>(DEFAULT_MODELS)
-  const [selectedId, setSelectedId] = useState('claw')
-  const [selectedShader, setShader] = useState<ShaderId>('cross-stitch')
+  const [selectedId, setSelectedId] = useState('knot')
+  const [selectedShader, setShader] = useState<ShaderId>(() => (['original', 'comic-line', 'prism-trail', 'cross-stitch'] as const)[Math.floor(Math.random() * 4)])
   const shader = SHADERS.some(item => item.id === selectedShader) ? selectedShader : 'original'
+  const [interactions, setInteractions] = useState<Partial<Record<ShaderId, InteractionSettings>>>({})
+  const interaction = interactions[shader] ?? DEFAULT_INTERACTION
+  const interactive = supportsInteraction(shader)
+  function changeInteraction<K extends keyof InteractionSettings>(key: K, value: InteractionSettings[K]) {
+    setInteractions(previous => ({ ...previous, [shader]: { ...(previous[shader] ?? DEFAULT_INTERACTION), [key]: value } }))
+  }
   const [params, setParams] = useState<ShaderParams>(DEFAULT_PARAMS)
   const [reference,setReference] = useState(DEFAULT_REFERENCE)
   const changeReference = <K extends keyof ReferenceSettings>(key:K,value:ReferenceSettings[K])=>setReference(prev=>({...prev,[key]:value}))
@@ -134,7 +144,7 @@ export default function App() {
   const [particle, setParticle] = useState<ParticleSettings>(DEFAULT_PARTICLE)
   const [particlePlayback, setParticlePlayback] = useState<ParticlePlayback>({ phase: 'logo', progress: 0, ready: false })
   const [reducedMotion, setReducedMotion] = useState(() => window.matchMedia('(prefers-reduced-motion: reduce)').matches)
-  const [background, setBackground] = useState<BackgroundSettings>(() => ({ ...EFFECT_BACKGROUNDS['cross-stitch'] }))
+  const [background, setBackground] = useState<BackgroundSettings>(() => ({ ...EFFECT_BACKGROUNDS[selectedShader] }))
   const [panelTheme, setPanelTheme] = useState(() => panelThemeForColor(background.color))
   useLayoutEffect(() => {
     setPanelTheme(previous => panelThemeForColor(background.color, previous))
@@ -147,6 +157,9 @@ export default function App() {
   const [lighting, setLighting] = useState<LightingSettings>(DEFAULT_LIGHTING)
   const [view, setView] = useState<ViewSettings>(() => ({ ...DEFAULT_VIEW, autoRotate: !window.matchMedia('(prefers-reduced-motion: reduce)').matches }))
   const [leftTab, setLeftTab] = useState<LeftTab>('models')
+  const [effectLayout, setEffectLayout] = useState<'grid' | 'list'>('grid')
+  const [effectFilter, setEffectFilter] = useState<'all' | 'animated' | 'interactive'>('all')
+  const visibleEffects = SHADERS.filter(effect => effectFilter === 'all' || (effectFilter === 'interactive' ? supportsInteraction(effect.id) : ['particle-morph', 'hologram', 'iridescent', 'dissolve', 'ascii', 'glyph-matrix', 'word-mosaic', 'pixel-glyph'].includes(effect.id)))
   const [rightTab, setRightTab] = useState<RightTab>('shader')
   const [leftOpen, setLeftOpen] = useState(() => window.innerWidth > 640)
   const [rightOpen, setRightOpen] = useState(() => window.innerWidth > 900)
@@ -250,7 +263,7 @@ export default function App() {
     if (!stageRef.current || copying) return
     setCopying(true)
     try {
-      const content = buildPrompt({ scope: 'shader', format: 'md', model, shader, params, background, lighting, view, particle, surface, reference, snapshot: stageRef.current.getSnapshot(), stats }, promptScope)
+      const content = buildPrompt({ scope: 'shader', format: 'md', model, shader, params, background, lighting, view, particle, surface, reference, interaction, snapshot: stageRef.current.getSnapshot(), stats }, promptScope)
       await navigator.clipboard.writeText(content)
       notify('已复制提示词')
     } catch (error) {
@@ -261,7 +274,7 @@ export default function App() {
   const luminance = [1, 3, 5].map((index) => parseInt(background.color.slice(index, index + 2), 16)).reduce((a, v, i) => a + v * [0.299, 0.587, 0.114][i], 0)
 
   return <main className={`workspace ${luminance > 165 ? 'light-canvas' : ''}`} style={backgroundStyle}>
-    <div className="stage-layer" aria-label="3D 模型预览区"><ShaderStage key={retryKey} ref={stageRef} model={model} shader={shader} params={params} lighting={lighting} view={view} particle={particle} surface={surface} reference={reference} onDissolveState={setDissolvePlayback} onParticleState={setParticlePlayback} onScaleChange={onScaleChange} onThumbnail={onThumbnail} onReady={onReady} onError={onError} onLoading={onLoading} /></div>
+    <div className="stage-layer" aria-label="3D 模型预览区"><ShaderStage interaction={interaction} key={retryKey} ref={stageRef} model={model} shader={shader} params={params} lighting={lighting} view={view} particle={particle} surface={surface} reference={reference} onDissolveState={setDissolvePlayback} onParticleState={setParticlePlayback} onScaleChange={onScaleChange} onThumbnail={onThumbnail} onReady={onReady} onError={onError} onLoading={onLoading} /></div>
     <header className="workspace-header">
       <a className="brand" href={PUBLIC_BASE} aria-label="Shader Room 首页"><span className="brand-mark" aria-hidden="true">✳</span><span>shader<span className="brand-room">room</span><span className="brand-dot">.</span></span></a>
       <div className="header-caption">3D 模型 × 材质实验</div>
@@ -305,8 +318,11 @@ export default function App() {
           </TabPane>
           <TabPane active={leftTab === 'effects'} side="right" className="left-scroll">
           <section id="effects-panel" role="tabpanel" aria-labelledby="effects-tab">
-            <div className="section-heading"><h2>效果库</h2><span>{SHADERS.length} 种效果</span></div>
-            <div className="effects-list">{SHADERS.map(effect => <button className={`effect-card ${shader === effect.id ? 'selected' : ''}`} aria-pressed={shader === effect.id} key={effect.id} onClick={() => { if (effect.id !== shader) { setShader(effect.id); setBackground({ ...EFFECT_BACKGROUNDS[effect.id] }) } setRightTab('shader') }}>
+            <div className="section-heading effect-library-heading"><h2>效果库</h2><div className="effect-library-controls">
+              <PanelSelect value={effectFilter} onChange={setEffectFilter} label="筛选效果" icon={<ListFilter size={15} />} active={effectFilter !== 'all'} downward options={[{ value: 'all', label: '全部' }, { value: 'animated', label: '含动画' }, { value: 'interactive', label: '含交互' }]} />
+              <button type="button" className="prompt-scope-trigger effect-layout-toggle" aria-label={`当前${effectLayout === 'grid' ? '宫格' : '列表'}展示，切换为${effectLayout === 'grid' ? '列表' : '宫格'}`} onClick={() => setEffectLayout(current => current === 'grid' ? 'list' : 'grid')}>{effectLayout === 'grid' ? '宫格' : '列表'}<ArrowRightLeft size={14} /></button>
+            </div></div>
+            <div className={`effects-list ${effectLayout === 'list' ? 'effects-compact' : ''}`}>{visibleEffects.map(effect => <button className={`effect-card ${shader === effect.id ? 'selected' : ''}`} aria-pressed={shader === effect.id} key={effect.id} onClick={() => { if (effect.id !== shader) { setShader(effect.id); setBackground({ ...EFFECT_BACKGROUNDS[effect.id] }) } setRightTab('shader') }}>
               <EffectPreview effect={effect.id} /><span className="effect-info"><span className="effect-title">{effect.name}{shader === effect.id && <Check size={14} />}</span><span className="effect-tag">{effect.tag}</span></span>
             </button>)}</div>
           </section>
@@ -350,8 +366,21 @@ export default function App() {
           </TabPane>
           <TabPane active={rightTab === 'shader'} side="right" className="right-scroll" resetKey={shader}>
           <section id="shader-panel" role="tabpanel" aria-labelledby="shader-tab">
-            <div className="effect-heading"><div><h2 className="heading-with-info">{currentShader.name}{shader === 'original' && <InfoTip text="保留模型自带的材质与贴图。基础几何使用默认的灰白材质。" />}{shader === 'ascii' && <InfoTip text="8 个明暗层级，每层 3 种字符。关闭随机变动时保留当前字符分布。" />}</h2></div><button className="icon-button subtle" aria-label="重置 Shader 参数" title="重置效果参数" onClick={() => { if (isParticle) { setParticle(DEFAULT_PARTICLE); stageRef.current?.resetParticle() } else if (isSurfaceShader(shader)) { setSurface(DEFAULT_SURFACE); stageRef.current?.setDissolveProgress(0) } else if(isReferenceShader(shader)) setReference(DEFAULT_REFERENCE); else setParams(DEFAULT_PARAMS); notify('Shader 参数已恢复默认') }}><RotateCcw size={15} /></button></div>
+            <div className="effect-heading"><div><h2 className="heading-with-info">{currentShader.name}{shader === 'original' && <InfoTip text="保留模型自带的材质与贴图。基础几何使用默认的灰白材质。" />}{shader === 'ascii' && <InfoTip text="8 个明暗层级，每层 3 种字符。关闭随机变动时保留当前字符分布。" />}</h2></div><button className="icon-button subtle" aria-label="重置 Shader 参数" title="重置效果参数" onClick={() => { if (interactive) setInteractions(previous => ({ ...previous, [shader]: { ...DEFAULT_INTERACTION } })); if (isParticle) { setParticle(DEFAULT_PARTICLE); stageRef.current?.resetParticle() } else if (isSurfaceShader(shader)) { setSurface(DEFAULT_SURFACE); stageRef.current?.setDissolveProgress(0) } else if(isReferenceShader(shader)) setReference(DEFAULT_REFERENCE); else setParams(DEFAULT_PARAMS); notify('Shader 参数已恢复默认') }}><RotateCcw size={15} /></button></div>
             <div className="shader-parameters">
+              {interactive && <div className="interaction-settings">
+                <div className="section-heading"><h3 className="heading-with-info">鼠标互动<InfoTip text="移动鼠标探索效果；按住拖动时暂停互动以旋转模型，移入面板后淡出。触屏保留模型旋转。" /></h3><HoverPointer size={14} /></div>
+                <Toggle checked={interaction.enabled} onChange={v => changeInteraction('enabled',v)}>开启鼠标互动</Toggle>
+                <Parameter label="影响半径" value={interaction.radius} min={40} max={320} step={5} suffix="px" onChange={v=>changeInteraction('radius',v)} />
+                <Parameter label="互动强度" value={interaction.strength} min={0} max={1.5} step={.05} onChange={v=>changeInteraction('strength',v)} />
+                <Parameter label="跟随延迟" value={interaction.follow} min={0} max={.4} step={.01} suffix="s" onChange={v=>changeInteraction('follow',v)} />
+                {['liquid-ripple','ascii','hologram','glyph-matrix','word-mosaic'].includes(shader) && <Parameter label="互动速度" value={interaction.speed} min={.2} max={3} step={.1} onChange={v=>changeInteraction('speed',v)} />}
+                {isNewInteractive(shader) && <>
+                  {shader==='lens-distortion' && <><Parameter label="放大倍率" value={interaction.magnification} min={1} max={2.5} step={.05} suffix="×" onChange={v=>changeInteraction('magnification',v)} /><Parameter label="边缘柔和度" value={interaction.softness} min={.1} max={1} step={.05} onChange={v=>changeInteraction('softness',v)} /></>}
+                  {['lens-distortion','liquid-ripple','prism-trail'].includes(shader) && <Parameter label="色散幅度" value={interaction.dispersion} min={0} max={8} step={.25} suffix="px" onChange={v=>changeInteraction('dispersion',v)} />}
+                  {['magnetic-pull','material-reveal','elastic-indent'].includes(shader) && <ColorField label="材质颜色" value={interaction.color} onChange={v=>changeInteraction('color',v)} />}
+                </>}
+              </div>}
               {isParticle && <>
                 <div className="particle-playback">
                   <div className="particle-route"><span className="particle-logo"><img src={publicPath('assets/ams-logo.svg')} alt="AMS 标志" /></span><span className="particle-route-arrow">↔</span><span className="particle-target"><Box size={15} /><span title={model.name}>{model.name}</span></span></div>
@@ -453,6 +482,7 @@ export default function App() {
               {shader === 'halftone' && <><Parameter label="网格大小" value={params.gridSize} min={4} max={48} suffix="px" onChange={v => changeParam('gridSize', v)} /><Parameter label="网点大小" value={params.dotSize} min={0.1} max={0.7} step={0.01} onChange={v => changeParam('dotSize', v)} /><Parameter label="明暗对比" value={params.contrast} min={0.2} max={3} step={0.05} onChange={v => changeParam('contrast', v)} /></>}
               {shader === 'pixelate' && <><Parameter label="像素大小" value={params.gridSize} min={4} max={48} suffix="px" onChange={v => changeParam('gridSize', v)} /><Parameter label="颜色层级" value={params.levels} min={2} max={12} onChange={v => changeParam('levels', v)} /></>}
               {shader === 'ascii' && <><Parameter label="字符大小" value={params.asciiSize ?? 24} min={12} max={64} suffix="px" onChange={v => changeParam('asciiSize', v)} /><Parameter label="明暗对比" value={params.contrast} min={0.2} max={3} step={0.05} onChange={v => changeParam('contrast', v)} /><Toggle checked={params.asciiRandomize ?? false} onChange={v => changeParam('asciiRandomize', v)}>字符随机变动</Toggle>{params.asciiRandomize && <Parameter label="变动速度" value={params.asciiSpeed ?? 3} min={0.5} max={10} step={0.5} suffix="次/s" onChange={v => changeParam('asciiSpeed', v)} />}</>}
+              {shader === 'comic-line' && <><Parameter label="线条宽度" value={params.comicWidth ?? 1.2} min={.5} max={3} step={.1} onChange={v => changeParam('comicWidth', v)} /><Parameter label="结构线阈值" value={params.comicDetail ?? .3} min={.05} max={.8} step={.01} onChange={v => changeParam('comicDetail', v)} /><ColorField label="墨线颜色" value={params.comicInk ?? '#292b2c'} onChange={v => changeParam('comicInk', v)} /><ColorField label="填充颜色" value={params.comicPaper ?? '#ffffff'} onChange={v => changeParam('comicPaper', v)} /></>}
               {shader === 'toon' && <><Parameter label="明暗色阶" value={params.levels} min={2} max={12} onChange={v => changeParam('levels', v)} /><Parameter label="明暗对比" value={params.contrast} min={0.2} max={3} step={0.05} onChange={v => changeParam('contrast', v)} /></>}
               {['halftone', 'pixelate', 'toon', 'ascii'].includes(shader) && <div className="settings-section palette-settings"><h3>色彩配置</h3><div className="colors-pair"><ColorField label="暗部颜色" value={params.shadowColor} onChange={v => changeParam('shadowColor', v)} /><ColorField label="亮部颜色" value={params.highlightColor} onChange={v => changeParam('highlightColor', v)} /></div><Parameter label="色彩饱和度" value={params.saturation} min={0} max={2} step={0.05} onChange={v => changeParam('saturation', v)} /></div>}
             </div>
@@ -478,7 +508,7 @@ export default function App() {
     {(loading || stageError) && <div className={`stage-message ${stageError ? 'error-message' : ''}`} role={stageError ? 'alert' : 'status'}>{stageError ? <><Box size={26} /><strong>暂时无法显示模型</strong><p>{stageError}</p><button onClick={() => setRetryKey(v => v + 1)}>重新加载</button>{model.source === 'upload' && <button className="text-button" onClick={() => selectModel('claw')}>返回默认模型</button>}</> : <><LoaderCircle className="spin" size={25} /><span>正在准备 {model.name}…</span></>}</div>}
     {isParticle && !particlePlayback.ready && !loading && !stageError && <div className="stage-message" role="status"><LoaderCircle className="spin" size={25} /><span>正在生成粒子…</span></div>}
     <div className="canvas-caption" aria-live="polite"><span>{isParticle && particlePlayback.phase === 'logo' ? 'AMS 标志' : model.name}</span><span className="caption-separator">/</span><span>{currentShader.name}</span></div>
-    <div className="view-toolbar" aria-label="视图控制">{isParticle ? <ToolbarTooltip label={particleAction}><button className="animation-toolbar-button" aria-label="播放粒子动画" disabled={!particleCanPlay} onClick={() => stageRef.current?.playParticle()}>{particlePlaying ? <LoaderCircle size={15} className="spin" /> : <Play size={15} />}<span>{particleAction}</span></button></ToolbarTooltip> : <ToolbarTooltip label={view.autoRotate ? '暂停旋转' : '自动旋转'}><button aria-label={view.autoRotate ? '暂停自动旋转' : '开始自动旋转'} onClick={() => changeView('autoRotate', !view.autoRotate)}>{view.autoRotate ? <Pause size={16} /> : <Play size={16} />}</button></ToolbarTooltip>}<span className="toolbar-divider" /><ToolbarTooltip label="重置视角"><button aria-label="重置视角" onClick={() => { stageRef.current?.resetView(); setView(prev => ({ ...prev, scale: 1, rotationX: 0, rotationY: 0, rotationZ: 0 })); notify('视角已重置') }}><Focus size={18} /></button></ToolbarTooltip><ToolbarTooltip label="专注模式"><button aria-label="切换专注模式" aria-pressed={!leftOpen && !rightOpen} onClick={() => { if (leftOpen || rightOpen) { setLeftOpen(false); setRightOpen(false) } else { setLeftOpen(true); setRightOpen(window.innerWidth > 900) } }}>{leftOpen || rightOpen ? <Minimize2 size={16} /> : <Maximize2 size={16} />}</button></ToolbarTooltip></div>
+    <div className="view-toolbar" aria-label="视图控制"><ToolbarTooltip label={!interactive ? '此效果不支持鼠标互动' : interaction.enabled ? '关闭鼠标互动' : '开启鼠标互动'}><button aria-label="鼠标互动" aria-pressed={interactive && interaction.enabled} disabled={!interactive} onClick={() => changeInteraction('enabled', !interaction.enabled)}><HoverPointer size={16} /></button></ToolbarTooltip><span className="toolbar-divider" />{isParticle ? <ToolbarTooltip label={particleAction}><button className="animation-toolbar-button" aria-label="播放粒子动画" disabled={!particleCanPlay} onClick={() => stageRef.current?.playParticle()}>{particlePlaying ? <LoaderCircle size={15} className="spin" /> : <Play size={15} />}<span>{particleAction}</span></button></ToolbarTooltip> : <ToolbarTooltip label={view.autoRotate ? '暂停旋转' : '自动旋转'}><button aria-label={view.autoRotate ? '暂停自动旋转' : '开始自动旋转'} onClick={() => changeView('autoRotate', !view.autoRotate)}>{view.autoRotate ? <Pause size={16} /> : <Play size={16} />}</button></ToolbarTooltip>}<span className="toolbar-divider" /><ToolbarTooltip label="重置视角"><button aria-label="重置视角" onClick={() => { stageRef.current?.resetView(); setView(prev => ({ ...prev, scale: 1, rotationX: 0, rotationY: 0, rotationZ: 0 })); notify('视角已重置') }}><Focus size={18} /></button></ToolbarTooltip><ToolbarTooltip label="专注模式"><button aria-label="切换专注模式" aria-pressed={!leftOpen && !rightOpen} onClick={() => { if (leftOpen || rightOpen) { setLeftOpen(false); setRightOpen(false) } else { setLeftOpen(true); setRightOpen(window.innerWidth > 900) } }}>{leftOpen || rightOpen ? <Minimize2 size={16} /> : <Maximize2 size={16} />}</button></ToolbarTooltip></div>
     <footer className="workspace-footer"><span className="gesture-hint"><MousePointer2 size={13} />拖动旋转<span>·</span>滚轮缩放</span><span className="model-stats">{stats ? `${stats.meshes} 个网格 · ${new Intl.NumberFormat('zh-CN').format(stats.triangles)} 三角面` : 'Shader Room'}</span></footer>
     <div className="toast-region" role="status" aria-live="polite">{toast && <div className="toast"><Check size={15} />{toast}</div>}</div>
   </main>

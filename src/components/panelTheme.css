@@ -96,6 +96,21 @@
 .color-picker-heading button { color: var(--ui-secondary); }
 .color-picker-eyedropper, .help-popover button, .color-picker-sampling-hint button { background: var(--ui-selected); color: var(--ui-accent-text); }
 .panel-scroll { scrollbar-color: var(--ui-border) transparent; }
+.view-toolbar button[aria-pressed="true"] { color: var(--ui-accent-text); background: var(--ui-selected); }
+.view-toolbar button:disabled { cursor: default; opacity: .35; background: transparent; color: var(--ui-muted); }
+.interaction-settings { margin-bottom: 26px; }
+.effect-lens-distortion { background: #b6c5da; }
+.effect-lens-distortion .effect-orb { background: radial-gradient(circle at 35% 35%,#ffffffb0 0 20%,#c9edff40 25% 62%,#e2bcff 70%,#7487ab 75%,#fff 79%,#adc0dd 85%); }
+.effect-liquid-ripple { background: #203e4c; }
+.effect-liquid-ripple .effect-orb { background: repeating-radial-gradient(ellipse at 35% 40%,#9ee7f2 0 2px,#46788a 4px 8px,#203e4c 10px 12px); }
+.effect-magnetic-pull { background: #332742; }
+.effect-magnetic-pull .effect-orb { border-radius: 70% 25% 55% 35%; transform: rotate(-30deg); background: radial-gradient(ellipse at 30% 30%,#f4c6ff,#9c85c7 40%,#514d87); }
+.effect-prism-trail { background: #161c2b; }
+.effect-prism-trail .effect-orb { box-shadow: -7px 0 0 #ff618080,7px 0 0 #53dbff80; background: radial-gradient(circle at 35% 30%,#fff,#76849e); }
+.effect-material-reveal { background: #193542; }
+.effect-material-reveal .effect-orb { background: repeating-linear-gradient(0deg,transparent 0 7px,#8de7f7 7px 8px),repeating-linear-gradient(90deg,#30475a 0 7px,#8de7f7 7px 8px); }
+.effect-elastic-indent { background: #d6c6b8; }
+.effect-elastic-indent .effect-orb { background: radial-gradient(ellipse at 55% 45%,#455570 0 15%,#8299b4 28%,#e0edfa 50%,#9dafc7 75%); }
 .heading-with-info { display: inline-flex; align-items: center; gap: 5px; }
 .info-tip-wrap { display: inline-flex; vertical-align: middle; }
 .info-tip-trigger { display: inline-flex; align-items: center; justify-content: center; width: 14px; height: 14px; padding: 0; color: var(--ui-muted); cursor: default; }
@@ -104,6 +119,23 @@
 .info-tooltip[data-visible="true"] { opacity: 1; visibility: visible; transform: scale(1); pointer-events: auto; transition-duration: 150ms, 150ms, 0s; }
 .upload-heading { font-size: 12px; color: var(--ui-secondary); margin-bottom: 10px; }
 .prompt-scope { position: relative; margin-left: auto; }
+.effect-comic-line { background: #f4f4f1; }
+.effect-comic-line .effect-orb { background: #fff; border: 1.5px solid #292b2c; box-shadow: inset -5px -2px 0 -4px #292b2c; }
+.effect-library-controls { display: flex; align-items: center; gap: 6px; }
+.prompt-scope-trigger.effect-layout-toggle { font-size: 12px; line-height: 16px; }
+.effect-layout-toggle svg { width: 14px; height: 14px; flex-shrink: 0; }
+.effect-library-heading { gap: 8px; }
+.library-select { margin-left: 0; }
+.library-select .prompt-scope-menu { top: calc(100% + 6px); bottom: auto; width: 124px; transform-origin: right top; }
+.library-select .prompt-scope-trigger { font-size: 12px; }
+.library-filter-trigger { width: 28px; height: 28px; padding: 0; justify-content: center; background: transparent; }
+.library-filter-trigger[data-active="true"] { background: var(--ui-selected); color: var(--ui-accent-text); }
+.library-filter-trigger[aria-expanded="true"] svg { transform: none; }
+.effects-list.effects-compact { grid-template-columns: minmax(0, 1fr); gap: 6px; }
+.effects-compact .effect-card { flex-direction: row; align-items: center; padding: 7px; gap: 10px; border-radius: 10px; }
+.effects-compact .effect-card .effect-preview { width: 44px; height: 44px; border-radius: 6px; }
+.effects-compact .effect-card .effect-orb { width: 30px; height: 30px; }
+.effects-compact .effect-card .effect-info { gap: 3px; padding: 0; }
 .prompt-scope-trigger { display: flex; align-items: center; gap: 6px; min-height: 28px; padding: 5px 8px; border-radius: 7px; background: var(--ui-card); color: var(--ui-secondary); font-size: 10px; transition: background-color 150ms ease-out; }
 .prompt-scope-trigger:hover, .prompt-scope-trigger[aria-expanded="true"] { background: var(--ui-hover); color: var(--ui-text); }
 .prompt-scope-trigger svg { transition: transform 150ms ease-out; }

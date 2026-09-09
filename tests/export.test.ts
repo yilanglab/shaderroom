@@ -428,6 +428,7 @@ test('all four surface effects export direct mesh GLSL, exact clocks and parseab
     const spec=buildExportSpec(source)
     assert.ok('surfaceRecipe' in spec)
     assert.equal(spec.effect.renderPath,'direct-mesh-shader')
+    assert.ok('time' in spec.uniforms && 'dissolveProgress' in spec.uniforms)
     assert.equal(spec.uniforms.time,4.123456789)
     assert.equal(spec.uniforms.dissolveProgress,.45)
     assert.equal(spec.surfaceRecipe.material.blending,'NoBlending')

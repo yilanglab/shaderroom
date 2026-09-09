@@ -1,4 +1,5 @@
 import * as THREE from 'three'
+import { INTERACTION_GLSL, interactionUniforms } from './interaction'
 import type { LightingSettings, ParticleSettings, ParticleSnapshot, ViewSettings } from '../types'
 import { buildViewLightRecipe, displaySrgbVector } from './lighting'
 
@@ -122,6 +123,7 @@ uniform vec3 fillLightColor;
 uniform vec3 keyLightDirection;
 uniform vec3 fillLightDirection;
 varying float vBrightness;
+${INTERACTION_GLSL}
 vec3 rotateAround(vec3 value, vec3 axis, float angle) {
   return value*cos(angle)+cross(axis,value)*sin(angle)+axis*dot(axis,value)*(1.0-cos(angle));
 }
@@ -139,6 +141,11 @@ void main() {
   vec3 light = ambientLightColor*.22 + keyLightColor*.22*max(dot(n,keyLightDirection),0.0) + fillLightColor*.22*max(dot(n,fillLightDirection),0.0);
   vBrightness = clamp(.18+dot(light,vec3(.299,.587,.114)),0.0,1.0);
   gl_Position = projectionMatrix*modelViewMatrix*vec4(point,1.0);
+  vec2 screenUV = gl_Position.xy / max(gl_Position.w, .0001) * .5 + .5;
+  vec2 delta = (screenUV - uPointer) * uInteractionResolution;
+  vec2 direction = length(delta) > .01 ? normalize(delta) : normalize(scatterDirection.xy + vec2(.001));
+  vec2 displacement = direction * hoverWeight(screenUV) * uStrength * uRadius * .5;
+  gl_Position.xy += displacement / uInteractionResolution * 2.0 * gl_Position.w;
   gl_PointSize = clamp(size*pixelRatio,1.0,64.0);
 }
 `
@@ -181,6 +188,7 @@ export function createParticlePoints(logo: Float32Array, target: Float32Array, n
     vertexShader: PARTICLE_VERTEX_SHADER, fragmentShader: PARTICLE_FRAGMENT_SHADER,
     transparent: true, depthTest: true, depthWrite: false, toneMapped: false,
     uniforms: {
+      ...interactionUniforms(),
       morph: { value: 0 }, turnAngle: { value: 0 }, rotationAxis: { value: new THREE.Vector3(0, 1, 0) },
       idleTime: { value: 0 }, driftAmplitude: { value: 0 },
       modelRotation: { value: 0 }, targetPose: { value: new THREE.Matrix4() }, scatter: { value: 0 }, floatOffset: { value: 0 }, size: { value: 2.4 }, pixelRatio: { value: 1 },
