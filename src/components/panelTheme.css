@@ -98,11 +98,11 @@
 .panel-scroll { scrollbar-color: var(--ui-border) transparent; }
 .heading-with-info { display: inline-flex; align-items: center; gap: 5px; }
 .info-tip-wrap { display: inline-flex; vertical-align: middle; }
-.info-tip-trigger { display: inline-flex; align-items: center; justify-content: center; width: 13px; height: 13px; padding: 0; color: var(--ui-muted); cursor: default; }
+.info-tip-trigger { display: inline-flex; align-items: center; justify-content: center; width: 14px; height: 14px; padding: 0; color: var(--ui-muted); cursor: default; }
 .info-tip-trigger:focus-visible { outline: 1px solid var(--ui-accent); outline-offset: 2px; border-radius: 50%; }
-.panel-tooltip.info-tooltip { position: fixed; z-index: 110; width: 240px; max-width: calc(100vw - 16px); white-space: normal; line-height: 1.7; font-size: 11px; transform-origin: left top; }
+.panel-tooltip.info-tooltip { position: fixed; z-index: 110; width: 240px; max-width: calc(100vw - 16px); white-space: normal; line-height: 1.7; font-size: 12px; transform-origin: left top; }
 .info-tooltip[data-visible="true"] { opacity: 1; visibility: visible; transform: scale(1); pointer-events: auto; transition-duration: 150ms, 150ms, 0s; }
-.upload-heading { font-size: 11px; color: var(--ui-secondary); margin-bottom: 10px; }
+.upload-heading { font-size: 12px; color: var(--ui-secondary); margin-bottom: 10px; }
 .prompt-scope { position: relative; margin-left: auto; }
 .prompt-scope-trigger { display: flex; align-items: center; gap: 6px; min-height: 28px; padding: 5px 8px; border-radius: 7px; background: var(--ui-card); color: var(--ui-secondary); font-size: 10px; transition: background-color 150ms ease-out; }
 .prompt-scope-trigger:hover, .prompt-scope-trigger[aria-expanded="true"] { background: var(--ui-hover); color: var(--ui-text); }
@@ -112,12 +112,12 @@
 .prompt-scope-menu button { display: flex; align-items: center; justify-content: space-between; width: 100%; padding: 9px 10px; border-radius: 6px; background: transparent; color: var(--ui-secondary); text-align: left; }
 .prompt-scope-menu button[aria-checked="true"] { background: var(--ui-selected); color: var(--ui-accent-text); }
 .prompt-scope-menu button:hover, .prompt-scope-menu button:focus-visible { background: var(--ui-hover); outline-offset: -2px; }
-.prompt-scope-menu strong { display: block; font-size: 11px; font-weight: 500; }
-.prompt-scope-menu small { display: block; margin-top: 4px; font-size: 9px; color: var(--ui-muted); }
+.prompt-scope-menu strong { display: block; font-size: 12px; font-weight: 500; }
+.prompt-scope-menu small { display: block; margin-top: 4px; font-size: 10px; color: var(--ui-muted); }
 @keyframes scope-menu-in { from { opacity: 0; transform: translateY(4px) scale(.98); } to { opacity: 1; transform: none; } }
 @media (prefers-reduced-motion: reduce) { .prompt-scope-menu { animation: none; } }
 .export-footer > .toolbar-tooltip-wrap { display: flex; width: 100%; }
-.export-footer .panel-tooltip { left: auto; right: 0; translate: 0; transform-origin: right bottom; font-size: 11px; }
+.export-footer .panel-tooltip { left: auto; right: 0; translate: 0; transform-origin: right bottom; font-size: 12px; }
 .export-footer .format-select select { max-width: 112px; }
 .export-button > svg:last-child { position: static; opacity: 1; }
 

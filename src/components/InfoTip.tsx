@@ -24,7 +24,7 @@ export function InfoTip({ text }: { text: string }) {
     return () => { clearTimeout(timer.current); window.removeEventListener('scroll', close, true); window.removeEventListener('resize', close) }
   }, [])
   return <span className="info-tip-wrap" onMouseEnter={open} onMouseLeave={close}>
-    <span ref={trigger} className="info-tip-trigger" tabIndex={0} role="img" aria-label={text} onFocus={open} onBlur={close} onKeyDown={event => { if (event.key === 'Escape') { event.stopPropagation(); close() } }}><Info size={13} aria-hidden="true" /></span>
+    <span ref={trigger} className="info-tip-trigger" tabIndex={0} role="img" aria-label={text} onFocus={open} onBlur={close} onKeyDown={event => { if (event.key === 'Escape') { event.stopPropagation(); close() } }}><Info size={14} aria-hidden="true" /></span>
     {position && createPortal(<span id={id} role="tooltip" className="panel-tooltip info-tooltip" data-visible={visible} style={position} onMouseEnter={() => { clearTimeout(timer.current); setVisible(true) }} onMouseLeave={close}>{text}</span>, document.body)}
   </span>
 }

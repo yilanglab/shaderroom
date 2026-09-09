@@ -29,7 +29,7 @@ export function PromptScopeSelect({ value, onChange }: { value: PromptScope; onC
       items[event.key === 'Home' ? 0 : event.key === 'End' ? items.length - 1 : (current + (event.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length]?.focus()
     }
   }}>
-    <button ref={trigger} type="button" className="prompt-scope-trigger" aria-label={`复制内容：${options.find(item => item.value === value)!.label}`} aria-haspopup="menu" aria-expanded={open} aria-controls={open ? id : undefined} onClick={() => setOpen(!open)}>{options.find(item => item.value === value)!.label}<ChevronDown size={13} /></button>
+    <button ref={trigger} type="button" className="prompt-scope-trigger" aria-label={`复制内容：${options.find(item => item.value === value)!.label}`} aria-haspopup="menu" aria-expanded={open} aria-controls={open ? id : undefined} onClick={() => setOpen(!open)}>{options.find(item => item.value === value)!.label}<ChevronDown size={14} /></button>
     {open && <div className="prompt-scope-menu" id={id} role="menu" aria-label="复制内容">{options.map(item => <button type="button" key={item.value} role="menuitemradio" aria-checked={item.value === value} tabIndex={-1} onClick={() => { onChange(item.value); setOpen(false); trigger.current?.focus() }}><span><strong>{item.label}</strong><small>{item.detail}</small></span><Check size={14} style={{ opacity: item.value === value ? 1 : 0 }} /></button>)}</div>}
   </div>
 }
