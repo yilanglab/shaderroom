@@ -2,7 +2,7 @@ import { PUBLIC_BASE, publicPath } from './lib/publicPath'
 import { DEFAULT_REFERENCE, isReferenceShader, type ReferenceSettings } from './render/referenceEffects'
 import { ColorPicker } from './components/ColorPicker'
 import { DEFAULT_SURFACE, createDissolve, isSurfaceShader, type SurfaceSettings } from './render/surfaceEffects'
-import { useCallback, useEffect, useId, useRef, useState } from 'react'
+import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from 'react'
 import type { CSSProperties, KeyboardEvent, ReactNode } from 'react'
 import { ArrowDownToLine, ArrowUpRight, Box, Check, ChevronDown, ChevronLeft, ChevronRight, CircleHelp, Copy, FileJson, Focus, Grid2X2, LoaderCircle, Maximize2, MousePointer2, Palette, Pause, Play, Plus, RotateCcw, SlidersHorizontal, Sparkles, Upload, X } from 'lucide-react'
 import ShaderStage from './render/ShaderStage'
@@ -25,6 +25,40 @@ function tabKeys(event: KeyboardEvent<HTMLDivElement>) {
   const current = buttons.indexOf(document.activeElement as HTMLButtonElement)
   const next = event.key === 'Home' ? 0 : event.key === 'End' ? buttons.length - 1 : (current + (event.key === 'ArrowRight' ? 1 : -1) + buttons.length) % buttons.length
   buttons[next]?.click(); buttons[next]?.focus()
+}
+
+function SlidingTabs({ active, label, children }: { active: string; label: string; children: ReactNode }) {
+  const barRef = useRef<HTMLDivElement>(null)
+  const pillRef = useRef<HTMLSpanElement>(null)
+  const positioned = useRef(false)
+  const position = useCallback((snap: boolean) => {
+    const tab = barRef.current?.querySelector<HTMLElement>('[role="tab"][aria-selected="true"]')
+    const pill = pillRef.current
+    if (!tab || !pill || tab.offsetWidth === 0) return
+    if (snap) pill.style.transition = 'none'
+    pill.style.transform = `translateX(${tab.offsetLeft}px)`
+    pill.style.width = `${tab.offsetWidth}px`
+    pill.style.top = `${tab.offsetTop}px`
+    pill.style.height = `${tab.offsetHeight}px`
+    if (snap) {
+      void pill.offsetWidth
+      pill.style.removeProperty('transition')
+    }
+    positioned.current = true
+  }, [])
+  useLayoutEffect(() => { position(!positioned.current) }, [active, position])
+  useLayoutEffect(() => {
+    const bar = barRef.current
+    if (!bar) return
+    const observer = new ResizeObserver(() => position(true))
+    observer.observe(bar)
+    bar.querySelectorAll('[role="tab"]').forEach(tab => observer.observe(tab))
+    return () => observer.disconnect()
+  }, [position])
+  return <div ref={barRef} className="panel-tabs" role="tablist" aria-label={label} onKeyDown={tabKeys}>
+    <span ref={pillRef} className="panel-tabs-pill" aria-hidden="true" />
+    {children}
+  </div>
 }
 
 function Parameter({ label, value, min, max, step = 1, suffix = '', onChange }: { label: string; value: number; min: number; max: number; step?: number; suffix?: string; onChange: (value: number) => void }) {
@@ -218,10 +252,10 @@ export default function App() {
     <aside className={`floating-panel left-panel ${leftOpen ? '' : 'collapsed'}`} aria-label="模型与效果面板">
       {leftOpen ? <>
         <div className="panel-top"><span className="panel-eyebrow">素材与效果</span><button className="icon-button" onClick={() => togglePanel('left')} aria-label="收起模型面板"><ChevronLeft size={17} /></button></div>
-        <div className="panel-tabs" role="tablist" aria-label="选择素材类型" onKeyDown={tabKeys}>
+        <SlidingTabs active={leftTab} label="选择素材类型">
           <TabButton active={leftTab === 'models'} id="models-tab" controls="models-panel" onClick={() => setLeftTab('models')}><Box size={15} />模型</TabButton>
           <TabButton active={leftTab === 'effects'} id="effects-tab" controls="effects-panel" onClick={() => setLeftTab('effects')}><Sparkles size={15} />效果</TabButton>
-        </div>
+        </SlidingTabs>
         <div key={leftTab} className="panel-scroll left-scroll">
           {leftTab === 'models' ? <section id="models-panel" role="tabpanel" aria-labelledby="models-tab">
             <div className="section-heading"><h2>模型库</h2><span>{models.length} 个模型</span></div>
@@ -259,10 +293,10 @@ export default function App() {
     <aside className={`floating-panel right-panel ${rightOpen ? '' : 'collapsed'}`} aria-label="参数面板">
       {rightOpen ? <>
         <div className="panel-top"><span className="panel-eyebrow">调整与导出</span><button className="icon-button" onClick={() => togglePanel('right')} aria-label="收起参数面板"><ChevronRight size={17} /></button></div>
-        <div className="panel-tabs" role="tablist" aria-label="参数类型" onKeyDown={tabKeys}>
+        <SlidingTabs active={rightTab} label="参数类型">
           <TabButton active={rightTab === 'background'} id="background-tab" controls="background-panel" onClick={() => setRightTab('background')}><Palette size={15} />背景</TabButton>
           <TabButton active={rightTab === 'shader'} id="shader-tab" controls="shader-panel" onClick={() => setRightTab('shader')}><SlidersHorizontal size={15} />Shader</TabButton>
-        </div>
+        </SlidingTabs>
         <div key={`${rightTab}-${shader}`} className="panel-scroll right-scroll">
           {rightTab === 'background' ? <section id="background-panel" role="tabpanel" aria-labelledby="background-tab">
             <div className="section-heading"><h2>背景颜色</h2><span>纯色</span></div>
