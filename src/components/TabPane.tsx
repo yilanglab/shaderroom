@@ -10,8 +10,14 @@ export function TabPane({ active, side, className, resetKey, children }: {
   children: ReactNode
 }) {
   const ref = useRef<HTMLDivElement>(null)
-  useLayoutEffect(() => { if (ref.current) ref.current.scrollTop = 0 }, [resetKey])
-  return <div ref={ref} className={`tab-pane panel-scroll ${className}`} data-active={active} data-side={side} inert={!active} aria-hidden={!active}>
+  useLayoutEffect(() => {
+    if (ref.current) {
+      ref.current.scrollTop = 0
+      ref.current.dataset.scrolled = 'false'
+    }
+  }, [resetKey])
+  return <div ref={ref} className={`tab-pane panel-scroll ${className}`} data-active={active} data-side={side} inert={!active} aria-hidden={!active}
+    onScroll={event => { event.currentTarget.dataset.scrolled = String(event.currentTarget.scrollTop > 1) }}>
     {children}
   </div>
 }

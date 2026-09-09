@@ -5,6 +5,7 @@ import './styles.css'
 import './components/parameterSlider.css'
 import './components/toggle.css'
 import './components/panelMorph.css'
+import './components/panelTheme.css'
 
 const DevAgentation = import.meta.env.DEV
   ? React.lazy(() => import('agentation').then(({ Agentation }) => ({ default: Agentation })))

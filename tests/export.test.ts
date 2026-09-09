@@ -7,6 +7,8 @@ import test from 'node:test'
 import * as THREE from 'three'
 import { DEFAULT_BACKGROUND, DEFAULT_LIGHTING, DEFAULT_PARAMS, DEFAULT_PARTICLE, DEFAULT_VIEW } from '../src/defaults'
 import { buildExportDocument, buildExportSpec } from '../src/lib/export'
+import { buildPrompt } from '../src/lib/prompt'
+import { backgroundStyle } from '../src/lib/backgroundStyle'
 import { buildLightRecipe, LIGHTING_CONVENTIONS } from '../src/render/lighting'
 import { AMS_LOGO_META, AMS_LOGO_SVG } from '../src/render/particleLogo'
 import { PARTICLE_FRAGMENT_SHADER, PARTICLE_RECIPE, PARTICLE_VERTEX_SHADER } from '../src/render/particleMorph'
@@ -464,5 +466,25 @@ test('four reference effects export independent postprocessing, exact frozen tic
     const json=md.match(/```json\s+([\s\S]*?)\s+```/)?.[1]
     assert.ok(json);assert.equal(JSON.parse(json).effect.id,shader)
     assert.ok(!md.includes('blob:private-upload'))
+  }
+})
+
+test('prompt scopes preserve effect dependencies and omit unselected content', () => {
+  for (const scope of ['both', 'background', 'effect'] as const) {
+    const content = buildPrompt(input(), scope)
+    const spec = JSON.parse(content.match(/```json\n([\s\S]*?)\n```/)![1])
+    assert.equal('background' in spec, scope !== 'effect')
+    assert.equal('model' in spec, scope !== 'background')
+    assert.ok(spec.lighting)
+    if (scope !== 'background') assert.ok(spec.shaders || spec.glsl)
+  }
+})
+
+test('live and exported grids use dark ink on light backgrounds and white ink on dark', () => {
+  for (const [color, rgb] of [['#ffffff', '31, 39, 56'], ['#101820', '255, 255, 255']]) {
+    const data = input({ background: { ...DEFAULT_BACKGROUND, color, grid: true } })
+    const style = backgroundStyle(data.background)
+    assert.ok(style.backgroundImage.includes(`rgba(${rgb},`))
+    assert.deepEqual(buildExportSpec(data).background.css, style)
   }
 })

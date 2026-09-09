@@ -5,6 +5,25 @@
   overflow: hidden;
   isolation: isolate;
 }
+/* Fixed below the tabs, above the scrolling panes; never intercept controls. */
+.tab-content-viewport::after {
+  content: '';
+  position: absolute;
+  inset: 0 0 auto;
+  height: 40px;
+  z-index: 2;
+  pointer-events: none;
+  background: linear-gradient(to bottom,
+    var(--ui-surface, var(--panel)) 0%,
+    color-mix(in srgb, var(--ui-surface, var(--panel)) 85%, transparent) 28%,
+    color-mix(in srgb, var(--ui-surface, var(--panel)) 35%, transparent) 65%,
+    transparent 100%);
+  opacity: 0;
+  transition: opacity 150ms ease-out;
+}
+.tab-content-viewport:has(> .tab-pane[data-active="true"][data-scrolled="true"])::after {
+  opacity: 1;
+}
 .tab-pane {
   position: absolute;
   inset: 0;
@@ -29,5 +48,5 @@
 .floating-panel[data-tab-input="keyboard"] .tab-pane,
 .floating-panel[data-tab-input="keyboard"] .panel-tabs-pill { transition: none; }
 @media (prefers-reduced-motion: reduce) {
-  .tab-pane { transition: none; }
+  .tab-pane, .tab-content-viewport::after { transition: none; }
 }

@@ -1,3 +1,4 @@
+import { backgroundStyle } from './backgroundStyle'
 import { DEFAULT_REFERENCE, isReferenceShader, buildReferenceUniforms, buildWordAtlasRecipe, WORD_ATLAS_SOURCE, REFERENCE_RECIPE, REFERENCE_VERTEX, REFERENCE_FRAGMENT } from '../render/referenceEffects'
 import { DEFAULT_SURFACE, buildSurfaceUniforms, createDissolve, isSurfaceShader, SURFACE_RECIPE, SURFACE_VERTEX, SURFACE_FRAGMENT } from '../render/surfaceEffects'
 import packageJson from '../../package.json'
@@ -10,15 +11,9 @@ import { SCENE_RECIPE, SHADER_FRAGMENT, SHADER_MODES, SHADER_VERTEX } from '../r
 import type { BackgroundSettings, ExportInput, LightingSettings, ModelEntry } from '../types'
 
 function backgroundSpec(settings: BackgroundSettings) {
-  const line = `rgba(255, 255, 255, ${settings.gridOpacity}) 1px, transparent 1px`
   return {
     settings: { ...settings },
-    css: {
-      backgroundColor: settings.color,
-      backgroundImage: settings.grid ? `linear-gradient(${line}), linear-gradient(90deg, ${line})` : 'none',
-      backgroundSize: `${settings.gridSize}px ${settings.gridSize}px`,
-      backgroundPosition: '0 0',
-    },
+    css: backgroundStyle(settings),
     placement: 'Full-viewport CSS background beneath the transparent WebGL canvas. Grid sizes are CSS pixels; grid lines are 1 CSS pixel.',
   }
 }
@@ -334,7 +329,7 @@ function markdown(input: ExportInput, spec: ReturnType<typeof buildExportSpec>):
     '```json', json, '```', ''
   ].join('\n\n')
 
-  return `# Shader Room · ${SHADERS.find((item) => item.id === input.shader)?.name ?? input.shader}\n\n这是可交给 Agent 的当前场景复现规范。以下 JSON 是精确值的事实源；保留浮点精度。GLB / FBX 二进制没有嵌入，请按 model.instructions 另附原模型文件。\n\n## 重建步骤\n\n1. 安装 dependencies 中记录的版本。加载 GLB 前，按 sceneRecipe.loaders 从固定版本的 Three.js 包复制五个 Draco / Basis 解码文件到 public/decoders 对应目录；为 GLTFLoader 接入 DRACOLoader、MeshoptDecoder 和 KTX2Loader，并先调用 ktx2Loader.detectSupport(renderer)。解码资源由同源本地路径提供；部署有 URL 前缀时同步修改两个 decoderPath / transcoderPath，加载器生命周期按 recipe 处理。根据 model.kind 加载随文档附带的 GLB 或 FBX（FBX 使用 sceneRecipe.loaders.fbx，保留初始姿态、不播放动画），或使用 sceneRecipe.geometries 创建内置几何体。默认 Claw 原件位于 public/models/claw.glb。上传模型按文件名、字节数与 SHA-256 核对，缺失的指纹不可补造。\n2. 按 sceneRecipe 创建渲染器、相机与控制器，按 lighting.lights 创建当前灯光；sceneRecipe.lights 已同步为同一配方，详见下方灯光复现说明。保留原 GLB root transform，按 sceneRecipe.normalization 居中并统一尺寸，再将 snapshot.model 应用到外层姿态 group。坐标为 Three.js 右手系、Y 向上；snapshot rotation 为 XYZ 欧拉弧度，UI view rotation 为角度。snapshot 已包含缩放和自转累计量，不要再次叠加 view 的姿态。\n3. 使用 snapshot.camera 与 target，以及 snapshot.viewport 的 CSS 尺寸和 pixelRatio。按实际 drawing-buffer 尺寸设置 RenderTarget 与 resolution，Shader 网格单位为物理像素。精确重现当前帧时关闭自转；恢复动画则从 snapshot 的 Y 弧度继续增加 rotateSpeed × min(deltaSeconds, 0.05)。\n4. 原始材质模式直接渲染场景并保留模型原材质。其他模式使用 sceneRecipe.material 的白色 MeshStandardMaterial：第一 pass 将灯光下的 3D 场景渲染到透明 linear RGBA8 WebGLRenderTarget；第二 pass 用全屏 quad、下方 GLSL 与 uniforms 输出效果。GLSL 输出 display-sRGB，禁止再次 tone mapping 或颜色转换。lightColor / shadowColor / highlightColor 直接采用 HEX/255。半调网点、像素化和色阶卡通使用 mix(shadowColor, highlightColor, value) 调色后应用 saturation；十字绣继续按阈值使用 lightColor 与 highlightColor，shadowColor 不影响针脚。\n5. 按 background.css 设置透明 canvas 下方的全屏 CSS 背景；背景网格使用 CSS px，与 Shader 网格不同。保持 alpha 合成。对照完整 spec 检查相机、模型身份、材质、灯光、颜色处理和全部参数。\n\n${lightingInstructions}\n\n## 完整 Spec\n\n\`\`\`json\n${json}\n\`\`\`\n\n## Vertex GLSL\n\n\`\`\`glsl\n${SHADER_VERTEX}\n\`\`\`\n\n## Fragment GLSL\n\n\`\`\`glsl\n${SHADER_FRAGMENT}\n\`\`\`\n`
+  return `# Shader Room · ${SHADERS.find((item) => item.id === input.shader)?.name ?? input.shader}\n\n这是可交给 Agent 的当前场景复现规范。以下 JSON 是精确值的事实源；保留浮点精度。GLB / FBX 二进制没有嵌入，请按 model.instructions 获取原模型文件。\n\n## 重建步骤\n\n1. 安装 dependencies 中记录的版本。加载 GLB 前，按 sceneRecipe.loaders 从固定版本的 Three.js 包复制五个 Draco / Basis 解码文件到 public/decoders 对应目录；为 GLTFLoader 接入 DRACOLoader、MeshoptDecoder 和 KTX2Loader，并先调用 ktx2Loader.detectSupport(renderer)。解码资源由同源本地路径提供；部署有 URL 前缀时同步修改两个 decoderPath / transcoderPath，加载器生命周期按 recipe 处理。根据 model.kind 加载随文档附带的 GLB 或 FBX（FBX 使用 sceneRecipe.loaders.fbx，保留初始姿态、不播放动画），或使用 sceneRecipe.geometries 创建内置几何体。默认 Claw 原件位于 public/models/claw.glb。上传模型按文件名、字节数与 SHA-256 核对，缺失的指纹不可补造。\n2. 按 sceneRecipe 创建渲染器、相机与控制器，按 lighting.lights 创建当前灯光；sceneRecipe.lights 已同步为同一配方，详见下方灯光复现说明。保留原 GLB root transform，按 sceneRecipe.normalization 居中并统一尺寸，再将 snapshot.model 应用到外层姿态 group。坐标为 Three.js 右手系、Y 向上；snapshot rotation 为 XYZ 欧拉弧度，UI view rotation 为角度。snapshot 已包含缩放和自转累计量，不要再次叠加 view 的姿态。\n3. 使用 snapshot.camera 与 target，以及 snapshot.viewport 的 CSS 尺寸和 pixelRatio。按实际 drawing-buffer 尺寸设置 RenderTarget 与 resolution，Shader 网格单位为物理像素。精确重现当前帧时关闭自转；恢复动画则从 snapshot 的 Y 弧度继续增加 rotateSpeed × min(deltaSeconds, 0.05)。\n4. 原始材质模式直接渲染场景并保留模型原材质。其他模式使用 sceneRecipe.material 的白色 MeshStandardMaterial：第一 pass 将灯光下的 3D 场景渲染到透明 linear RGBA8 WebGLRenderTarget；第二 pass 用全屏 quad、下方 GLSL 与 uniforms 输出效果。GLSL 输出 display-sRGB，禁止再次 tone mapping 或颜色转换。lightColor / shadowColor / highlightColor 直接采用 HEX/255。半调网点、像素化和色阶卡通使用 mix(shadowColor, highlightColor, value) 调色后应用 saturation；十字绣继续按阈值使用 lightColor 与 highlightColor，shadowColor 不影响针脚。\n5. 按 background.css 设置透明 canvas 下方的全屏 CSS 背景；背景网格使用 CSS px，与 Shader 网格不同。保持 alpha 合成。对照完整 spec 检查相机、模型身份、材质、灯光、颜色处理和全部参数。\n\n${lightingInstructions}\n\n## 完整 Spec\n\n\`\`\`json\n${json}\n\`\`\`\n\n## Vertex GLSL\n\n\`\`\`glsl\n${SHADER_VERTEX}\n\`\`\`\n\n## Fragment GLSL\n\n\`\`\`glsl\n${SHADER_FRAGMENT}\n\`\`\`\n`
 }
 
 export function buildExportDocument(input: ExportInput): { fileName: string; mimeType: string; content: string } {

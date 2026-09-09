@@ -1,17 +1,28 @@
+import { InfoTip } from './components/InfoTip'
+import { PromptScopeSelect } from './components/PromptScopeSelect'
 import { PUBLIC_BASE, publicPath } from './lib/publicPath'
 import { DEFAULT_REFERENCE, isReferenceShader, type ReferenceSettings } from './render/referenceEffects'
 import { ColorPicker } from './components/ColorPicker'
 import { TabPane } from './components/TabPane'
+import { panelThemeForColor } from './lib/panelTheme'
 import { DEFAULT_SURFACE, createDissolve, isSurfaceShader, type SurfaceSettings } from './render/surfaceEffects'
-import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from 'react'
-import type { CSSProperties, KeyboardEvent, ReactNode } from 'react'
-import { ArrowDownToLine, ArrowUpRight, Box, Check, ChevronDown, ChevronLeft, ChevronRight, CircleHelp, Copy, FileJson, Focus, Grid2X2, LoaderCircle, Maximize2, MousePointer2, Palette, Pause, Play, Plus, RotateCcw, SlidersHorizontal, Sparkles, Upload, X } from 'lucide-react'
+import { cloneElement, useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from 'react'
+import type { CSSProperties, KeyboardEvent, ReactElement, ReactNode } from 'react'
+import { Box, Check, ChevronDown, ChevronLeft, ChevronRight, CircleHelp, Copy, FileJson, Focus, Grid2X2, LoaderCircle, Maximize2, Minimize2, MousePointer2, Palette, Pause, Play, Plus, RotateCcw, SlidersHorizontal, Sparkles, Upload, X } from 'lucide-react'
 import ShaderStage from './render/ShaderStage'
 import { MODEL_SCALE_RANGE } from './render/modelZoom'
-import { buildExportDocument } from './lib/export'
+import { buildPrompt, type PromptScope } from './lib/prompt'
+import { backgroundStyle as buildBackgroundStyle } from './lib/backgroundStyle'
 import { prepareModelFile } from './lib/upload'
 import { BACKGROUND_COLORS, EFFECT_BACKGROUNDS, DEFAULT_LIGHTING, DEFAULT_MODELS, DEFAULT_PARAMS, DEFAULT_PARTICLE, DEFAULT_VIEW, SHADERS } from './defaults'
-import type { BackgroundSettings, DirectionalLightSettings, ExportFormat, LightingSettings, LightSettings, ModelEntry, ModelStats, ParticlePlayback, ParticleSettings, ShaderId, ShaderParams, StageHandle, ViewSettings } from './types'
+import type { BackgroundSettings, DirectionalLightSettings, LightingSettings, LightSettings, ModelEntry, ModelStats, ParticlePlayback, ParticleSettings, ShaderId, ShaderParams, StageHandle, ViewSettings } from './types'
+
+function ToolbarTooltip({ label, children }: { label: string; children: ReactElement<{ 'aria-describedby'?: string }> }) {
+  const id = useId()
+  return <span className="toolbar-tooltip-wrap">
+    {cloneElement(children, { 'aria-describedby': id })}<span className="panel-tooltip" id={id} role="tooltip">{label}</span>
+  </span>
+}
 
 type LeftTab = 'models' | 'effects'
 type RightTab = 'background' | 'shader'
@@ -124,6 +135,15 @@ export default function App() {
   const [particlePlayback, setParticlePlayback] = useState<ParticlePlayback>({ phase: 'logo', progress: 0, ready: false })
   const [reducedMotion, setReducedMotion] = useState(() => window.matchMedia('(prefers-reduced-motion: reduce)').matches)
   const [background, setBackground] = useState<BackgroundSettings>(() => ({ ...EFFECT_BACKGROUNDS['cross-stitch'] }))
+  const [panelTheme, setPanelTheme] = useState(() => panelThemeForColor(background.color))
+  useLayoutEffect(() => {
+    setPanelTheme(previous => panelThemeForColor(background.color, previous))
+  }, [background.color])
+  useLayoutEffect(() => {
+    // The document root also themes colour-picker portals mounted under body.
+    document.documentElement.dataset.panelTheme = panelTheme
+    return () => { delete document.documentElement.dataset.panelTheme }
+  }, [panelTheme])
   const [lighting, setLighting] = useState<LightingSettings>(DEFAULT_LIGHTING)
   const [view, setView] = useState<ViewSettings>(() => ({ ...DEFAULT_VIEW, autoRotate: !window.matchMedia('(prefers-reduced-motion: reduce)').matches }))
   const [leftTab, setLeftTab] = useState<LeftTab>('models')
@@ -139,7 +159,7 @@ export default function App() {
   const [thumbnails, setThumbnails] = useState<Record<string, string>>({})
   const onThumbnail = useCallback((id: string, url: string) => setThumbnails(previous => ({ ...previous, [id]: url })), [])
   const [stats, setStats] = useState<ModelStats | null>(null)
-  const [format, setFormat] = useState<ExportFormat>('json')
+  const [promptScope, setPromptScope] = useState<PromptScope>('both')
   const [copying, setCopying] = useState(false)
   const [toast, setToast] = useState('')
   const [helpOpen, setHelpOpen] = useState(false)
@@ -228,25 +248,16 @@ export default function App() {
   function changeLight(key: keyof LightingSettings, patch: Partial<DirectionalLightSettings>) { setLighting(prev => ({ ...prev, [key]: { ...prev[key], ...patch } })) }
   async function exportCurrent() {
     if (!stageRef.current || copying) return
+    setCopying(true)
     try {
-      const document = buildExportDocument({ scope: rightTab, format, model, shader, params, background, lighting, view, particle, surface, reference, snapshot: stageRef.current.getSnapshot(), stats })
-      if (format === 'md') {
-        setCopying(true)
-        try {
-          await navigator.clipboard.writeText(document.content)
-          notify(`已复制${rightTab === 'background' ? '背景' : 'Shader 效果'} Markdown`)
-        } catch {
-          notify('复制失败，请允许浏览器访问剪贴板后重试')
-        } finally { setCopying(false) }
-        return
-      }
-      const url = URL.createObjectURL(new Blob([document.content], { type: document.mimeType }))
-      const link = window.document.createElement('a'); link.href = url; link.download = document.fileName
-      window.document.body.append(link); link.click(); link.remove(); setTimeout(() => URL.revokeObjectURL(url), 1000)
-      notify(`已导出${rightTab === 'background' ? '背景' : 'Shader 效果'} JSON`)
-    } catch (error) { notify(error instanceof Error ? error.message : '导出失败，请再试一次') }
+      const content = buildPrompt({ scope: 'shader', format: 'md', model, shader, params, background, lighting, view, particle, surface, reference, snapshot: stageRef.current.getSnapshot(), stats }, promptScope)
+      await navigator.clipboard.writeText(content)
+      notify('已复制提示词')
+    } catch (error) {
+      notify(error instanceof Error ? error.message : '复制失败，请允许浏览器访问剪贴板后重试')
+    } finally { setCopying(false) }
   }
-  const backgroundStyle = { backgroundColor: background.color, backgroundImage: background.grid ? `linear-gradient(rgba(255,255,255,${background.gridOpacity}) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,${background.gridOpacity}) 1px, transparent 1px)` : 'none', backgroundSize: `${background.gridSize}px ${background.gridSize}px`, backgroundPosition: '0 0' }
+  const backgroundStyle = buildBackgroundStyle(background)
   const luminance = [1, 3, 5].map((index) => parseInt(background.color.slice(index, index + 2), 16)).reduce((a, v, i) => a + v * [0.299, 0.587, 0.114][i], 0)
 
   return <main className={`workspace ${luminance > 165 ? 'light-canvas' : ''}`} style={backgroundStyle}>
@@ -280,12 +291,12 @@ export default function App() {
                 {entry.source === 'upload' && <button className="remove-model" aria-label={`移除${entry.name}`} onClick={() => removeModel(entry)}><X size={11} /></button>}
               </div>)}
             </div>
-            <div className="upload-section">
+            <div className="upload-section"><div className="heading-with-info upload-heading">上传模型<InfoTip text="文件只在本地处理。FBX 展示静态姿态，外部贴图不加载。刷新后需重新上传。" /></div>
               <div id="upload-area">
                 <button className={`upload-area ${isDragging ? 'dragging' : ''}`} disabled={uploading} onClick={() => fileInput.current?.click()} onDragEnter={e => { e.preventDefault(); dragDepth.current++; setIsDragging(true) }} onDragLeave={e => { e.preventDefault(); dragDepth.current--; if (!dragDepth.current) setIsDragging(false) }} onDragOver={e => { e.preventDefault(); e.dataTransfer.dropEffect = 'copy' }} onDrop={e => { e.preventDefault(); dragDepth.current = 0; setIsDragging(false); void uploadFiles(Array.from(e.dataTransfer.files)) }}>
                   {uploading ? <LoaderCircle className="spin" size={23} /> : <Upload size={23} strokeWidth={1.5} />}<strong>{uploading ? '正在读取模型…' : isDragging ? '松开，添加模型' : '点击或拖拽上传'}</strong><span>GLB / FBX · 最大 50 MB</span>
                 </button>
-                <p className="upload-note">文件只在本地处理。FBX 展示静态姿态，外部贴图不加载。刷新后需重新上传。</p>
+
               </div>
               <input type="file" accept=".glb,.fbx" multiple ref={fileInput} className="sr-only" aria-label="上传 GLB / FBX 模型" onChange={e => { void uploadFiles(Array.from(e.target.files ?? [])); e.target.value = '' }} />
               {uploadError && <div className="inline-error" role="alert">{uploadError}<button aria-label="关闭上传错误" onClick={() => setUploadError('')}><X size={13} /></button></div>}
@@ -319,27 +330,27 @@ export default function App() {
         <div className="tab-content-viewport">
           <TabPane active={rightTab === 'background'} side="left" className="right-scroll">
           <section id="background-panel" role="tabpanel" aria-labelledby="background-tab">
-            <div className="section-heading"><h2>背景颜色</h2><span>纯色</span></div>
+            <div className="section-heading"><h2 className="heading-with-info">背景颜色<InfoTip text="背景提示词包含背景颜色、参考网格和当前光照，可交给 Agent 还原场景。" /></h2><span>纯色</span></div>
             <div className="color-grid">{BACKGROUND_COLORS.map(item => <button key={item.color} className={`color-swatch ${background.color === item.color ? 'selected' : ''}`} aria-label={`背景设为${item.name}`} aria-pressed={background.color === item.color} style={{ background: item.color }} title={item.name} onClick={() => setBackground(prev => ({ ...prev, color: item.color }))}>{background.color === item.color && <Check size={17} color={item.color === '#222631' || item.color === '#4e70ef' ? '#fff' : '#293346'} />}</button>)}</div>
             <ColorPicker label="自定义颜色" value={background.color} className="custom-background-picker" onChange={color=>setBackground(prev=>({...prev,color}))} />
             <div className="settings-section lighting-section">
-              <div className="section-heading"><h3>场景光照</h3><button className="icon-button" aria-label="重置光照" title="重置光照" onClick={() => { setLighting(DEFAULT_LIGHTING); notify('光照已恢复默认') }}><RotateCcw size={13} /></button></div>
-              <p className="lighting-note">控制模型的明暗与光线方向。</p>
+              <div className="section-heading"><h3 className="heading-with-info">场景光照<InfoTip text="控制模型的明暗与光线方向。方位角绕模型水平旋转，高度角正值从上方照射。" /></h3><button className="icon-button" aria-label="重置光照" title="重置光照" onClick={() => { setLighting(DEFAULT_LIGHTING); notify('光照已恢复默认') }}><RotateCcw size={13} /></button></div>
+
               <LightControls label="环境光" value={lighting.ambient} defaultOpen onChange={patch => changeLight('ambient', patch)} />
               <LightControls label="主光" value={lighting.key} defaultOpen onChange={patch => changeLight('key', patch)} />
               <LightControls label="补光" value={lighting.fill} onChange={patch => changeLight('fill', patch)} />
-              <p className="lighting-note angle-note">方位角绕模型水平旋转，高度角正值从上方照射。</p>
+
             </div>
             <div className="settings-section"><h3>参考网格</h3><Toggle checked={background.grid} onChange={grid => setBackground(prev => ({ ...prev, grid }))}>显示网格</Toggle>
               {background.grid && <><Parameter label="网格间距" value={background.gridSize} min={24} max={120} suffix="px" onChange={gridSize => setBackground(prev => ({ ...prev, gridSize }))} /><Parameter label="网格透明度" value={background.gridOpacity} min={0.02} max={0.3} step={0.01} onChange={gridOpacity => setBackground(prev => ({ ...prev, gridOpacity }))} /></>}
             </div>
-            <div className="context-note"><Palette size={17} /><p>导出文档包含背景颜色、参考网格和当前光照，可交给 Agent 还原场景。</p></div>
+
             <button className="text-button reset-background" onClick={() => { setBackground({ ...EFFECT_BACKGROUNDS[shader] }); notify('已恢复当前效果的默认背景') }}><RotateCcw size={13} />重置背景</button>
           </section>
           </TabPane>
           <TabPane active={rightTab === 'shader'} side="right" className="right-scroll" resetKey={shader}>
           <section id="shader-panel" role="tabpanel" aria-labelledby="shader-tab">
-            <div className="effect-heading"><div><span className="small-label">当前效果</span><h2>{currentShader.name}</h2></div><button className="icon-button subtle" aria-label="重置 Shader 参数" title="重置效果参数" onClick={() => { if (isParticle) { setParticle(DEFAULT_PARTICLE); stageRef.current?.resetParticle() } else if (isSurfaceShader(shader)) { setSurface(DEFAULT_SURFACE); stageRef.current?.setDissolveProgress(0) } else if(isReferenceShader(shader)) setReference(DEFAULT_REFERENCE); else setParams(DEFAULT_PARAMS); notify('Shader 参数已恢复默认') }}><RotateCcw size={15} /></button></div>
+            <div className="effect-heading"><div><h2 className="heading-with-info">{currentShader.name}{shader === 'original' && <InfoTip text="保留模型自带的材质与贴图。基础几何使用默认的灰白材质。" />}{shader === 'ascii' && <InfoTip text="8 个明暗层级，每层 3 种字符。关闭随机变动时保留当前字符分布。" />}</h2></div><button className="icon-button subtle" aria-label="重置 Shader 参数" title="重置效果参数" onClick={() => { if (isParticle) { setParticle(DEFAULT_PARTICLE); stageRef.current?.resetParticle() } else if (isSurfaceShader(shader)) { setSurface(DEFAULT_SURFACE); stageRef.current?.setDissolveProgress(0) } else if(isReferenceShader(shader)) setReference(DEFAULT_REFERENCE); else setParams(DEFAULT_PARAMS); notify('Shader 参数已恢复默认') }}><RotateCcw size={15} /></button></div>
             <div className="shader-parameters">
               {isParticle && <>
                 <div className="particle-playback">
@@ -348,15 +359,15 @@ export default function App() {
                   <div className="particle-progress" role="progressbar" aria-label="粒子变形进度" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(particlePlayback.progress * 100)}><span style={{ transform: `scaleX(${particlePlayback.progress})` }} /></div>
                   <div className="particle-actions"><button className="particle-play-button" disabled={!particleCanPlay} onClick={() => stageRef.current?.playParticle()}>{particlePlaying ? <LoaderCircle size={14} className="spin" /> : <Play size={14} />}{particleAction}</button><button className="icon-button" title="还原标志" aria-label="重置粒子动画" disabled={!particlePlayback.ready || !!stageError} onClick={() => stageRef.current?.resetParticle()}><RotateCcw size={14} /></button></div>
                 </div>
-                <p className="particle-note">旋转一周，从设定角度开始变为目标模型。再次播放，沿原路径还原标志。</p>
+
                 {reducedMotion && <p className="particle-note motion-note">系统已开启减少动态效果，播放将直接切换形态。</p>}
                 <fieldset className="particle-parameters" disabled={particlePlaying}>
                   <Parameter label="粒子数量" value={particle.count} min={2000} max={40000} step={1000} onChange={v => changeParticle('count', v)} />
                   <Parameter label="粒子大小" value={particle.size} min={0.5} max={6} step={0.1} suffix="px" onChange={v => changeParticle('size', v)} />
                   <ColorField label="粒子颜色" value={particle.color} onChange={v => changeParticle('color', v)} /><ColorField label="粒子高光" value={particle.highlightColor} onChange={v => changeParticle('highlightColor', v)} />
-                  <div className="settings-section"><h3>变形动画</h3><Parameter label="动画时长" value={particle.duration} min={1} max={12} step={0.1} suffix="s" onChange={v => changeParticle('duration', v)} /><Parameter label="变形起点" value={particle.morphStartAngle ?? DEFAULT_PARTICLE.morphStartAngle} min={0} max={300} step={5} suffix="°" onChange={v => changeParticle('morphStartAngle', v)} /><label className="parameter-select"><span>旋转轴</span><select aria-label="粒子动画旋转轴" value={particle.rotationAxis} onChange={e => changeParticle('rotationAxis', e.target.value as ParticleSettings['rotationAxis'])}><option value="y">Y 轴 · 左右转动</option><option value="x">X 轴 · 上下翻转</option><option value="z">Z 轴 · 平面转动</option></select></label><Parameter label="散开幅度" value={particle.scatter} min={0} max={1} step={0.05} onChange={v => changeParticle('scatter', v)} /></div>
+                  <div className="settings-section"><h3 className="heading-with-info">变形动画<InfoTip text="旋转一周，从设定角度开始变为目标模型。再次播放，沿原路径还原标志。" /></h3><Parameter label="动画时长" value={particle.duration} min={1} max={12} step={0.1} suffix="s" onChange={v => changeParticle('duration', v)} /><Parameter label="变形起点" value={particle.morphStartAngle ?? DEFAULT_PARTICLE.morphStartAngle} min={0} max={300} step={5} suffix="°" onChange={v => changeParticle('morphStartAngle', v)} /><label className="parameter-select"><span>旋转轴</span><select aria-label="粒子动画旋转轴" value={particle.rotationAxis} onChange={e => changeParticle('rotationAxis', e.target.value as ParticleSettings['rotationAxis'])}><option value="y">Y 轴 · 左右转动</option><option value="x">X 轴 · 上下翻转</option><option value="z">Z 轴 · 平面转动</option></select></label><Parameter label="散开幅度" value={particle.scatter} min={0} max={1} step={0.05} onChange={v => changeParticle('scatter', v)} /></div>
                   <details className="pose-settings particle-idle"><summary>标志浮动 <ChevronDown size={13} /></summary><Parameter label="浮动幅度" value={particle.floatAmplitude} min={0} max={0.3} step={0.01} onChange={v => changeParticle('floatAmplitude', v)} /><Parameter label="浮动速度" value={particle.floatSpeed} min={0.1} max={2} step={0.05} onChange={v => changeParticle('floatSpeed', v)} /><Parameter label="粒子游动幅度" value={particle.driftAmplitude ?? 0.055} min={0} max={0.15} step={0.005} onChange={v => changeParticle('driftAmplitude', v)} /></details>
-                  <div className="settings-section"><h3>模型完成态</h3><Toggle checked={particle.modelRotate} onChange={v => changeParticle('modelRotate', v)}>完成后旋转</Toggle>{particle.modelRotate && <Parameter label="模型旋转速度" value={particle.modelRotateSpeed} min={0.05} max={1.5} step={0.05} onChange={v => changeParticle('modelRotateSpeed', v)} />}<p className="particle-note">到达模型形态后停止上下浮动。</p></div>
+                  <div className="settings-section"><h3 className="heading-with-info">模型完成态<InfoTip text="到达模型形态后停止上下浮动。" /></h3><Toggle checked={particle.modelRotate} onChange={v => changeParticle('modelRotate', v)}>完成后旋转</Toggle>{particle.modelRotate && <Parameter label="模型旋转速度" value={particle.modelRotateSpeed} min={0.05} max={1.5} step={0.05} onChange={v => changeParticle('modelRotateSpeed', v)} />}</div>
                 </fieldset>
               </>}
               {shader === 'cross-stitch' && <>
@@ -438,10 +449,10 @@ export default function App() {
                 <ColorField label="灰阶亮部" value={reference.pixelColor} onChange={v=>changeReference('pixelColor',v)} />
               </>}
               {isReferenceShader(shader) && shader!=='adaptive-grid' && <><Toggle checked={reference.animate} onChange={v=>changeReference('animate',v)}>字符随机变动</Toggle><Parameter label="变动速度" value={reference.speed} min={.5} max={8} step={.5} onChange={v=>changeReference('speed',v)} /></>}
-              {shader === 'original' && <p className="original-note">保留模型自带的材质与贴图。基础几何使用默认的灰白材质。</p>}
+
               {shader === 'halftone' && <><Parameter label="网格大小" value={params.gridSize} min={4} max={48} suffix="px" onChange={v => changeParam('gridSize', v)} /><Parameter label="网点大小" value={params.dotSize} min={0.1} max={0.7} step={0.01} onChange={v => changeParam('dotSize', v)} /><Parameter label="明暗对比" value={params.contrast} min={0.2} max={3} step={0.05} onChange={v => changeParam('contrast', v)} /></>}
               {shader === 'pixelate' && <><Parameter label="像素大小" value={params.gridSize} min={4} max={48} suffix="px" onChange={v => changeParam('gridSize', v)} /><Parameter label="颜色层级" value={params.levels} min={2} max={12} onChange={v => changeParam('levels', v)} /></>}
-              {shader === 'ascii' && <><Parameter label="字符大小" value={params.asciiSize ?? 24} min={12} max={64} suffix="px" onChange={v => changeParam('asciiSize', v)} /><Parameter label="明暗对比" value={params.contrast} min={0.2} max={3} step={0.05} onChange={v => changeParam('contrast', v)} /><Toggle checked={params.asciiRandomize ?? false} onChange={v => changeParam('asciiRandomize', v)}>字符随机变动</Toggle>{params.asciiRandomize && <Parameter label="变动速度" value={params.asciiSpeed ?? 3} min={0.5} max={10} step={0.5} suffix="次/s" onChange={v => changeParam('asciiSpeed', v)} />}<p className="panel-note">8 个明暗层级，每层 3 种字符。关闭随机变动时保留当前字符分布。</p></>}
+              {shader === 'ascii' && <><Parameter label="字符大小" value={params.asciiSize ?? 24} min={12} max={64} suffix="px" onChange={v => changeParam('asciiSize', v)} /><Parameter label="明暗对比" value={params.contrast} min={0.2} max={3} step={0.05} onChange={v => changeParam('contrast', v)} /><Toggle checked={params.asciiRandomize ?? false} onChange={v => changeParam('asciiRandomize', v)}>字符随机变动</Toggle>{params.asciiRandomize && <Parameter label="变动速度" value={params.asciiSpeed ?? 3} min={0.5} max={10} step={0.5} suffix="次/s" onChange={v => changeParam('asciiSpeed', v)} />}</>}
               {shader === 'toon' && <><Parameter label="明暗色阶" value={params.levels} min={2} max={12} onChange={v => changeParam('levels', v)} /><Parameter label="明暗对比" value={params.contrast} min={0.2} max={3} step={0.05} onChange={v => changeParam('contrast', v)} /></>}
               {['halftone', 'pixelate', 'toon', 'ascii'].includes(shader) && <div className="settings-section palette-settings"><h3>色彩配置</h3><div className="colors-pair"><ColorField label="暗部颜色" value={params.shadowColor} onChange={v => changeParam('shadowColor', v)} /><ColorField label="亮部颜色" value={params.highlightColor} onChange={v => changeParam('highlightColor', v)} /></div><Parameter label="色彩饱和度" value={params.saturation} min={0} max={2} step={0.05} onChange={v => changeParam('saturation', v)} /></div>}
             </div>
@@ -453,7 +464,10 @@ export default function App() {
           </section>
           </TabPane>
         </div>
-        <div className="export-footer"><div className="export-summary"><FileJson size={14} /><span>{rightTab === 'background' ? '背景与光照配置' : isParticle ? 'SVG、粒子源码与动画配置' : '源码、参数与场景配置'}</span><label className="format-select"><span className="sr-only">导出格式</span><select value={format} onChange={e => setFormat(e.target.value as ExportFormat)}><option value="json">JSON</option><option value="md">Markdown</option></select><ChevronDown size={11} /></label></div><button className="export-button" disabled={copying || (rightTab === 'shader' && (loading || !!stageError || uploading || (isParticle && (!particlePlayback.ready || particlePlaying))))} onClick={exportCurrent}>{format === 'md' ? <Copy size={16} /> : <ArrowDownToLine size={16} />}{copying ? '正在复制…' : format === 'md' ? '复制到剪贴板' : rightTab === 'background' ? '导出背景' : '导出效果'}<ArrowUpRight size={15} /></button><span className="export-hint">{isParticle && particlePlaying && rightTab === 'shader' ? '动画完成后可导出完整效果' : '把文档与模型交给 Agent，复现你的效果'}</span></div>
+        <div className="export-footer">
+          <div className="export-summary"><FileJson size={14} /><span>提示词复制</span><PromptScopeSelect value={promptScope} onChange={setPromptScope} /></div>
+          <ToolbarTooltip label="发送提示词至Agent复现当前效果"><button className="export-button" disabled={copying || (promptScope !== 'background' && (loading || !!stageError || uploading || (isParticle && (!particlePlayback.ready || particlePlaying))))} onClick={exportCurrent}><Copy size={16} />{copying ? '正在复制…' : '复制提示词'}</button></ToolbarTooltip>
+        </div>
       </div>
       <div className="panel-trigger-wrap" inert={rightOpen} aria-hidden={rightOpen}>
         <button className="panel-expand" aria-label="展开参数面板" aria-describedby="settings-panel-tooltip" aria-expanded={rightOpen} aria-controls="settings-panel-content" onClick={() => togglePanel('right')}><SlidersHorizontal size={19} /></button>
@@ -464,7 +478,7 @@ export default function App() {
     {(loading || stageError) && <div className={`stage-message ${stageError ? 'error-message' : ''}`} role={stageError ? 'alert' : 'status'}>{stageError ? <><Box size={26} /><strong>暂时无法显示模型</strong><p>{stageError}</p><button onClick={() => setRetryKey(v => v + 1)}>重新加载</button>{model.source === 'upload' && <button className="text-button" onClick={() => selectModel('claw')}>返回默认模型</button>}</> : <><LoaderCircle className="spin" size={25} /><span>正在准备 {model.name}…</span></>}</div>}
     {isParticle && !particlePlayback.ready && !loading && !stageError && <div className="stage-message" role="status"><LoaderCircle className="spin" size={25} /><span>正在生成粒子…</span></div>}
     <div className="canvas-caption" aria-live="polite"><span>{isParticle && particlePlayback.phase === 'logo' ? 'AMS 标志' : model.name}</span><span className="caption-separator">/</span><span>{currentShader.name}</span></div>
-    <div className="view-toolbar" aria-label="视图控制">{isParticle ? <button className="animation-toolbar-button" aria-label="播放粒子动画" disabled={!particleCanPlay} onClick={() => stageRef.current?.playParticle()}>{particlePlaying ? <LoaderCircle size={15} className="spin" /> : <Play size={15} />}<span>{particleAction}</span></button> : <button aria-label={view.autoRotate ? '暂停自动旋转' : '开始自动旋转'} title={view.autoRotate ? '暂停旋转' : '自动旋转'} onClick={() => changeView('autoRotate', !view.autoRotate)}>{view.autoRotate ? <Pause size={16} /> : <Play size={16} />}</button>}<span className="toolbar-divider" /><button aria-label="重置视角" title="重置视角" onClick={() => { stageRef.current?.resetView(); setView(prev => ({ ...prev, scale: 1, rotationX: 0, rotationY: 0, rotationZ: 0 })); notify('视角已重置') }}><Focus size={18} /></button><button aria-label="切换专注模式" title="专注模式" aria-pressed={!leftOpen && !rightOpen} onClick={() => { if (leftOpen || rightOpen) { setLeftOpen(false); setRightOpen(false) } else { setLeftOpen(true); setRightOpen(window.innerWidth > 900) } }}><Maximize2 size={16} /></button></div>
+    <div className="view-toolbar" aria-label="视图控制">{isParticle ? <ToolbarTooltip label={particleAction}><button className="animation-toolbar-button" aria-label="播放粒子动画" disabled={!particleCanPlay} onClick={() => stageRef.current?.playParticle()}>{particlePlaying ? <LoaderCircle size={15} className="spin" /> : <Play size={15} />}<span>{particleAction}</span></button></ToolbarTooltip> : <ToolbarTooltip label={view.autoRotate ? '暂停旋转' : '自动旋转'}><button aria-label={view.autoRotate ? '暂停自动旋转' : '开始自动旋转'} onClick={() => changeView('autoRotate', !view.autoRotate)}>{view.autoRotate ? <Pause size={16} /> : <Play size={16} />}</button></ToolbarTooltip>}<span className="toolbar-divider" /><ToolbarTooltip label="重置视角"><button aria-label="重置视角" onClick={() => { stageRef.current?.resetView(); setView(prev => ({ ...prev, scale: 1, rotationX: 0, rotationY: 0, rotationZ: 0 })); notify('视角已重置') }}><Focus size={18} /></button></ToolbarTooltip><ToolbarTooltip label="专注模式"><button aria-label="切换专注模式" aria-pressed={!leftOpen && !rightOpen} onClick={() => { if (leftOpen || rightOpen) { setLeftOpen(false); setRightOpen(false) } else { setLeftOpen(true); setRightOpen(window.innerWidth > 900) } }}>{leftOpen || rightOpen ? <Minimize2 size={16} /> : <Maximize2 size={16} />}</button></ToolbarTooltip></div>
     <footer className="workspace-footer"><span className="gesture-hint"><MousePointer2 size={12} />拖动旋转<span>·</span>滚轮缩放</span><span className="model-stats">{stats ? `${stats.meshes} 个网格 · ${new Intl.NumberFormat('zh-CN').format(stats.triangles)} 三角面` : 'Shader Room'}</span></footer>
     <div className="toast-region" role="status" aria-live="polite">{toast && <div className="toast"><Check size={15} />{toast}</div>}</div>
   </main>
