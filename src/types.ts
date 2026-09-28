@@ -1,7 +1,7 @@
 import type { ReferenceSettings } from './render/referenceEffects'
 import type { NewInteractiveId, InteractionSettings, InteractionSnapshot } from './render/interaction'
 import type { SurfaceSettings, SurfaceSnapshot, DissolveState } from './render/surfaceEffects'
-export type ShaderId = NewInteractiveId | 'comic-line' | 'cross-stitch' | 'original' | 'halftone' | 'pixelate' | 'toon' | 'particle-morph' | 'ascii' | 'engraving' | 'hologram' | 'iridescent' | 'dissolve' | 'glyph-matrix' | 'adaptive-grid' | 'word-mosaic' | 'pixel-glyph'
+export type ShaderId = NewInteractiveId | 'heatmap' | 'comic-line' | 'cross-stitch' | 'original' | 'halftone' | 'pixelate' | 'toon' | 'particle-morph' | 'ascii' | 'engraving' | 'hologram' | 'iridescent' | 'dissolve' | 'glyph-matrix' | 'adaptive-grid' | 'word-mosaic' | 'pixel-glyph'
 export type ModelKind = 'fbx' | 'glb' | 'sphere' | 'torus-knot' | 'rounded-cube'
 export interface ModelEntry {
   id: string
@@ -15,7 +15,20 @@ export interface ModelEntry {
   thumbnail?: string
 }
 export interface ShaderParams {
+  heatCold?: string
+  heatCool?: string
+  heatMid?: string
+  heatWarm?: string
+  heatHot?: string
+  heatContrast?: number
+  heatOffset?: number
+  heatScale?: number
+  heatOrganic?: number
+  heatGrain?: number
   comicWidth?: number
+  comicHatching?: boolean
+  comicHatchGroups?: number
+  comicHatchAngle?: number
   comicDetail?: number
   comicInk?: string
   comicPaper?: string

@@ -119,6 +119,14 @@
 .info-tooltip[data-visible="true"] { opacity: 1; visibility: visible; transform: scale(1); pointer-events: auto; transition-duration: 150ms, 150ms, 0s; }
 .upload-heading { font-size: 12px; color: var(--ui-secondary); margin-bottom: 10px; }
 .prompt-scope { position: relative; margin-left: auto; }
+.heat-ramp { height: 12px; border-radius: 6px; margin: 8px 0 16px; }
+.heat-presets { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin: 12px 0 16px; }
+.heat-preset { display: flex; flex-direction: column; gap: 6px; padding: 7px; border: 1px solid transparent; border-radius: 8px; background: var(--ui-card); color: var(--ui-secondary); font-size: 12px; text-align: left; }
+.heat-preset:hover { background: var(--ui-hover); border-color: var(--ui-hover-border); }
+.heat-preset[aria-pressed="true"] { background: var(--ui-selected); border-color: var(--ui-accent); color: var(--ui-accent-text); }
+.heat-preset-swatch { width: 100%; height: 18px; border-radius: 4px; }
+.effect-heatmap { background: #030611; }
+.effect-heatmap .effect-orb { background: radial-gradient(ellipse at 28% 70%, #ff3615 4%, #fff329 24%, #1ce5dc 45%, #124bff 65%, #05072e 90%); box-shadow: 0 0 12px #124bff66; }
 .effect-comic-line { background: #f4f4f1; }
 .effect-comic-line .effect-orb { background: #fff; border: 1.5px solid #292b2c; box-shadow: inset -5px -2px 0 -4px #292b2c; }
 .effect-library-controls { display: flex; align-items: center; gap: 6px; }

@@ -1,6 +1,7 @@
 import { publicPath } from '../lib/publicPath'
 import { ASCII_GLSL, ASCII_RECIPE } from './ascii'
 import type { ShaderId } from '../types'
+import { HEAT_GLSL } from './heatmap'
 import { DEFAULT_LIGHTING } from '../defaults'
 import { buildLightRecipe, LIGHTING_CONVENTIONS } from './lighting'
 import { MODEL_SCALE_RANGE, MODEL_ZOOM_WHEEL } from './modelZoom'
@@ -9,6 +10,7 @@ import { INTERACTION_GLSL } from './interaction'
 
 /** Shared, JSON-safe rendering contract consumed by both the live stage and exports. */
 export const SHADER_MODES: Record<ShaderId, number> = {
+  heatmap: 22,
   'comic-line': 21,
   original: 0, 'cross-stitch': 1, halftone: 2, pixelate: 3, toon: 4, 'particle-morph': 5, ascii: 6, engraving: 7, hologram: 8, iridescent: 9, dissolve: 10, 'glyph-matrix': 11, 'adaptive-grid': 12, 'word-mosaic': 13, 'pixel-glyph': 14,
   'lens-distortion': 15, 'liquid-ripple': 16, 'magnetic-pull': 17, 'prism-trail': 18, 'material-reveal': 19, 'elastic-indent': 20,
@@ -105,6 +107,8 @@ uniform float saturation;
 uniform sampler2D tDepth;
 uniform float cameraNear, cameraFar, comicWidth, comicDetail;
 uniform vec3 comicInk, comicPaper;
+uniform float comicHatching, comicHatchGroups, comicHatchAngle, comicPixelRatio;
+uniform vec3 comicAmbient, comicKey, comicFill, comicKeyDirection, comicFillDirection;
 varying vec2 vUv;
 
 ${INTERACTION_GLSL}
@@ -119,7 +123,13 @@ vec3 palette(float value) {
   return clamp(mix(vec3(luma(color)), color, saturation), 0.0, 1.0);
 }
 ${ASCII_GLSL}
+float comicHatch(vec2 p, float angle, float width) {
+  float distance = abs(fract(dot(p,vec2(cos(angle),sin(angle)))/5.0)-.5)*5.0;
+  return 1.0-smoothstep(max(0.0,width-.5),width+.5,distance);
+}
+${HEAT_GLSL}
 void main() {
+  if (mode > 21.5) { gl_FragColor = renderHeat(vUv); return; }
   if (mode > 20.5) {
     vec4 center = texture2D(tDiffuse, vUv);
     float depth = texture2D(tDepth, vUv).x;
@@ -136,6 +146,18 @@ void main() {
       float depthEdge = smoothstep(.012,.028,abs(z-sampleZ)/max(z,.001));
       edge = max(edge,max(silhouette,max(normalEdge,depthEdge)*center.a*sampleNormal.a));
       coverage = max(coverage,sampleNormal.a);
+    }
+    if (comicHatching > .5 && center.a > .01) {
+      vec3 n = normalize(center.rgb*2.0-1.0);
+      vec3 light = comicAmbient*.2+comicKey*.28*max(dot(n,comicKeyDirection),0.0)+comicFill*.28*max(dot(n,comicFillDirection),0.0);
+      float lit = clamp(dot(light,vec3(.299,.587,.114)),0.0,1.0);
+      float dark = 1.0-clamp((lit-.5)*1.3+.5,0.0,1.0);
+      vec2 p = gl_FragCoord.xy/comicPixelRatio;
+      float a = radians(comicHatchAngle);
+      float ink = comicHatch(p,a,.8)*smoothstep(.04,.55,dark);
+      if(comicHatchGroups > 1.5) ink=max(ink,comicHatch(p,a+1.5707963,.64)*smoothstep(.35,.8,dark));
+      if(comicHatchGroups > 2.5) ink=max(ink,comicHatch(p,a+.7853982,.56)*smoothstep(.7,1.0,dark));
+      edge=max(edge,ink*center.a);
     }
     gl_FragColor = vec4(mix(comicPaper,comicInk,edge),coverage);
     return;

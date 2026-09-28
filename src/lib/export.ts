@@ -1,4 +1,5 @@
 import { backgroundStyle } from './backgroundStyle'
+import { comicHatchLights } from '../render/comicHatching'
 import { DEFAULT_REFERENCE, isReferenceShader, buildReferenceUniforms, buildWordAtlasRecipe, WORD_ATLAS_SOURCE, REFERENCE_RECIPE, REFERENCE_VERTEX, REFERENCE_FRAGMENT } from '../render/referenceEffects'
 import { DEFAULT_SURFACE, buildSurfaceUniforms, createDissolve, isSurfaceShader, SURFACE_RECIPE, SURFACE_VERTEX, SURFACE_FRAGMENT } from '../render/surfaceEffects'
 import packageJson from '../../package.json'
@@ -8,6 +9,7 @@ import { AMS_LOGO_META, AMS_LOGO_SVG } from '../render/particleLogo'
 import { buildParticleUniformValues, PARTICLE_FRAGMENT_SHADER, PARTICLE_RECIPE, PARTICLE_VERTEX_SHADER } from '../render/particleMorph'
 import { PARTICLE_SAMPLE_SEED, PARTICLE_SAMPLING_RECIPE } from '../render/particleSampling'
 import { SCENE_RECIPE, SHADER_FRAGMENT, SHADER_MODES, SHADER_VERTEX } from '../render/shaders'
+import { HEAT_COLORS, HEAT_NUMBERS, HEAT_RECIPE, heatSettings } from '../render/heatmap'
 import { DEFAULT_INTERACTION, INTERACTION_RECIPE, interactionMode, isNewInteractive, supportsInteraction } from '../render/interaction'
 import { INTERACTIVE_POST_VERTEX, INTERACTIVE_POST_FRAGMENT, INTERACTIVE_MESH_VERTEX, INTERACTIVE_MESH_FRAGMENT, INTERACTIVE_EFFECT_RECIPE, buildInteractiveUniformValues, usesInteractiveMesh } from '../render/interactiveEffects'
 import type { BackgroundSettings, ExportInput, LightingSettings, ModelEntry } from '../types'
@@ -232,11 +234,15 @@ function buildEffectSpec(input: ExportInput) {
     parameters: { ...params },
     uniforms: {
       tDiffuse: 'Texture from the scene pass WebGLRenderTarget (not embedded)',
+      ...(input.shader === 'heatmap' ? { ...Object.fromEntries(HEAT_COLORS.map(key => [key, displaySrgbVector(heatSettings(params)[key])])), ...Object.fromEntries(HEAT_NUMBERS.map(key => [key, heatSettings(params)[key]])) } : {}),
       ...(input.shader === 'comic-line' ? {
         tDepth: 'WebGLRenderTarget.depthTexture: THREE.DepthTexture with UnsignedIntType; resized with target',
         cameraNear: snapshot.camera.near, cameraFar: snapshot.camera.far,
         comicWidth: (params.comicWidth ?? 1.2) * snapshot.viewport.pixelRatio,
         comicDetail: params.comicDetail ?? .3,
+        comicHatching: params.comicHatching ? 1 : 0, comicHatchGroups: params.comicHatchGroups ?? 3,
+        comicHatchAngle: params.comicHatchAngle ?? 35,
+        comicPixelRatio: snapshot.viewport.pixelRatio, ...comicHatchLights(input.lighting),
         comicInk: displaySrgbVector(params.comicInk ?? '#292b2c'), comicPaper: displaySrgbVector(params.comicPaper ?? '#ffffff'),
       } : {}),
       resolution: [Math.floor(snapshot.viewport.width * snapshot.viewport.pixelRatio), Math.floor(snapshot.viewport.height * snapshot.viewport.pixelRatio)],
@@ -250,6 +256,8 @@ function buildEffectSpec(input: ExportInput) {
       levels: params.levels, saturation: params.saturation,
     },
     uniformConventions: {
+      ...(input.shader === 'comic-line' ? { comicHatching: 'Optional static shadow hatching uses decoded view-space normals and scene lights in observer coordinates, matching engraving light coefficients and darkness thresholds. Groups 1/2/3 use comicHatchAngle, comicHatchAngle+90, comicHatchAngle+45 degrees progressively in darker regions; default angle 35 degrees. Spacing 5 CSS pixels; widths .8/.64/.56 CSS pixels. Off preserves pure outlines. Hatching uses comicInk; no paper grain.' } : {}),
+      ...(input.shader === 'heatmap' ? { heatmap: HEAT_RECIPE } : {}),
       ...(input.shader === 'comic-line' ? { comicLine: 'Static normal/depth edge detection, mode 21. Override scene material with THREE.MeshNormalMaterial({side:THREE.DoubleSide}) for the offscreen pass, then restore scene.overrideMaterial=null. Attach a THREE.DepthTexture to the RGBA render target. Clear RGBA to transparent, depth to 1. Use the actual camera near/far. Sample normals without color-space conversion. comicWidth is CSS line radius multiplied by pixelRatio; colors are display-sRGB. Fullscreen output is straight alpha, NoBlending, toneMapped:false. No time, lighting, or pointer dependence. Surface threshold suppresses smooth normal changes; depth discontinuities preserve overlapping structure.' } : {}),
       resolution: 'Actual WebGL drawing-buffer width and height in physical pixels; floor(viewport CSS size × recorded pixelRatio). Resize the render target and this uniform together.',
       asciiTick: 'Restore snapshot.ascii.tick for the captured glyph distribution. Resume from snapshot.ascii.elapsed only when asciiRandomize is enabled and reduced motion is off; advance by clamped delta and use floor(elapsed*asciiSpeed). The deterministic variant formula is in sceneRecipe.ascii.variation.',

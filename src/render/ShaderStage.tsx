@@ -15,6 +15,8 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
 import { createBuiltinGeometry, createThumbnailRenderer } from './modelThumbnail'
 import type { ModelEntry, ModelStats, SceneSnapshot, StageHandle, StageProps } from '../types'
 import { SCENE_RECIPE, SHADER_FRAGMENT, SHADER_MODES, SHADER_VERTEX } from './shaders'
+import { comicHatchLights } from './comicHatching'
+import { HEAT_COLORS, HEAT_NUMBERS, HEAT_DEFAULTS, heatSettings } from './heatmap'
 import { buildViewLightRecipe, displaySrgbVector } from './lighting'
 import { attachModelZoom } from './modelZoom'
 import { AMS_LOGO_SVG } from './particleLogo'
@@ -216,6 +218,10 @@ const ShaderStage = forwardRef<StageHandle, StageProps>(function ShaderStage(pro
     const postMaterial = new THREE.ShaderMaterial({
       uniforms: {
         ...interactionUniforms(),
+        comicHatching: { value: 0 }, comicHatchGroups: { value: 3 }, comicHatchAngle: { value: 35 }, comicPixelRatio: { value: 1 },
+        ...Object.fromEntries(Object.keys(comicHatchLights(propsRef.current.lighting)).map(key => [key, { value: new THREE.Vector3() }])),
+        ...Object.fromEntries(HEAT_COLORS.map(key => [key, { value: new THREE.Color() }])),
+        ...Object.fromEntries(HEAT_NUMBERS.map(key => [key, { value: HEAT_DEFAULTS[key] }])),
         tDepth: { value: renderTarget.depthTexture }, cameraNear: { value: camera.near }, cameraFar: { value: camera.far },
         comicWidth: { value: 1.2 }, comicDetail: { value: .3 }, comicInk: { value: new THREE.Color() }, comicPaper: { value: new THREE.Color() },
         tDiffuse: { value: renderTarget.texture }, resolution: { value: resolution }, mode: { value: 1 },
@@ -339,9 +345,17 @@ const ShaderStage = forwardRef<StageHandle, StageProps>(function ShaderStage(pro
       const { shader, params } = propsRef.current
       const uniforms = postMaterial.uniforms
       uniforms.mode.value = SHADER_MODES[shader]
+      const heat = heatSettings(params)
+      for (const key of HEAT_COLORS) setDisplayColor(uniforms[key].value, heat[key])
+      for (const key of HEAT_NUMBERS) uniforms[key].value = heat[key]
       uniforms.cameraNear.value = camera.near; uniforms.cameraFar.value = camera.far
       uniforms.comicWidth.value = (params.comicWidth ?? 1.2) * renderer.getPixelRatio()
       uniforms.comicDetail.value = params.comicDetail ?? .3
+      uniforms.comicHatching.value = params.comicHatching ? 1 : 0
+      uniforms.comicHatchGroups.value = params.comicHatchGroups ?? 3
+      uniforms.comicHatchAngle.value = params.comicHatchAngle ?? 35
+      uniforms.comicPixelRatio.value = renderer.getPixelRatio()
+      if (shader === 'comic-line' && params.comicHatching) for (const [key,value] of Object.entries(comicHatchLights(propsRef.current.lighting))) uniforms[key].value.fromArray(value)
       setDisplayColor(uniforms.comicInk.value, params.comicInk ?? '#292b2c')
       setDisplayColor(uniforms.comicPaper.value, params.comicPaper ?? '#ffffff')
       uniforms.asciiTick.value = Math.floor(asciiElapsed * (params.asciiSpeed ?? 3))
@@ -398,7 +412,7 @@ const ShaderStage = forwardRef<StageHandle, StageProps>(function ShaderStage(pro
         renderer.render(scene, camera)
       } else {
         renderer.setRenderTarget(renderTarget)
-        if (surfaceId === 'comic-line') scene.overrideMaterial = comicNormal
+        if (surfaceId === 'comic-line' || surfaceId === 'heatmap') scene.overrideMaterial = comicNormal
         renderer.render(scene, camera)
         scene.overrideMaterial = null
         renderer.setRenderTarget(null)

@@ -1,4 +1,5 @@
 import { publicPath } from './lib/publicPath'
+import { HEAT_DEFAULTS } from './render/heatmap'
 import type { BackgroundSettings, LightingSettings, ModelEntry, ParticleSettings, ShaderId, ShaderParams, ViewSettings } from './types'
 
 export const DEFAULT_MODELS: ModelEntry[] = [
@@ -9,6 +10,7 @@ export const DEFAULT_MODELS: ModelEntry[] = [
 ]
 export const SHADERS: { id: ShaderId; name: string; description: string; tag: string }[] = [
   { id: 'original', name: '原始材质', description: '查看模型自身的颜色与材质', tag: '基础' },
+  { id: 'heatmap', name: '热力图', description: '可自定义冷暖色带与有机热区', tag: '热成像 · 渐变' },
   { id: 'comic-line', name: '漫画线描', description: '白色填充与清晰的轮廓、结构墨线', tag: '漫画 · 线稿' },
   { id: 'lens-distortion', name: '流动透镜', description: '鼠标周围的放大、折射与轻微色散', tag: '鼠标 · 光学' },
   { id: 'liquid-ripple', name: '液面涟漪', description: '光滑影像随鼠标泛起波纹', tag: '鼠标 · 流体' },
@@ -32,7 +34,9 @@ export const SHADERS: { id: ShaderId; name: string; description: string; tag: st
   { id: 'particle-morph', name: '粒子变形', description: '从 AMS 标志旋转变为模型', tag: '动画' },
 ]
 export const DEFAULT_PARAMS: ShaderParams = {
+  ...HEAT_DEFAULTS,
   comicWidth: 1.2, comicDetail: .3, comicInk: '#292b2c', comicPaper: '#ffffff',
+  comicHatching: false, comicHatchGroups: 3, comicHatchAngle: 35,
   asciiSize: 24, asciiRandomize: false, asciiSpeed: 3,
   gridSize: 14, thickness: 0.25, threshold1: 0.64, threshold2: 0.97,
   lightColor: '#8cc4ff', shadowColor: '#233140', highlightColor: '#ffffff', dotSize: 0.46,
@@ -41,6 +45,7 @@ export const DEFAULT_PARAMS: ShaderParams = {
 export const DEFAULT_BACKGROUND: BackgroundSettings = { color: '#4e70ef', grid: true, gridSize: 64, gridOpacity: 0.08 }
 // Backgrounds are independent of lighting and remain editable after selection.
 export const EFFECT_BACKGROUNDS: Record<ShaderId, BackgroundSettings> = {
+  heatmap: { ...DEFAULT_BACKGROUND, color: '#030611', grid: false },
   'comic-line': { ...DEFAULT_BACKGROUND, color: '#f7f7f5', grid: true, gridSize: 48, gridOpacity: .14 },
   'lens-distortion': { ...DEFAULT_BACKGROUND, color: '#b8c9de', grid: true, gridOpacity: .14 },
   'liquid-ripple': { ...DEFAULT_BACKGROUND, color: '#183a49', grid: false },
