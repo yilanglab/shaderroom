@@ -1,3 +1,6 @@
+import { EXTENDED_GLSL, EXTENDED_MODES } from './extendedEffects'
+import { compositionFragment } from '../lib/effectComposition'
+import { PILOT_GLSL } from './shadersPilot'
 import { publicPath } from '../lib/publicPath'
 import { ASCII_GLSL, ASCII_RECIPE } from './ascii'
 import type { ShaderId } from '../types'
@@ -10,6 +13,7 @@ import { INTERACTION_GLSL } from './interaction'
 
 /** Shared, JSON-safe rendering contract consumed by both the live stage and exports. */
 export const SHADER_MODES: Record<ShaderId, number> = {
+  ...EXTENDED_MODES, 'fluted-glass': 23, dither: 24,
   heatmap: 22,
   'comic-line': 21,
   original: 0, 'cross-stitch': 1, halftone: 2, pixelate: 3, toon: 4, 'particle-morph': 5, ascii: 6, engraving: 7, hologram: 8, iridescent: 9, dissolve: 10, 'glyph-matrix': 11, 'adaptive-grid': 12, 'word-mosaic': 13, 'pixel-glyph': 14,
@@ -87,7 +91,7 @@ void main() {
 }
 `
 
-export const SHADER_FRAGMENT = /* glsl */ `
+const RAW_SHADER_FRAGMENT = /* glsl */ `
 uniform sampler2D tDiffuse;
 uniform vec2 resolution;
 uniform float mode;
@@ -128,7 +132,12 @@ float comicHatch(vec2 p, float angle, float width) {
   return 1.0-smoothstep(max(0.0,width-.5),width+.5,distance);
 }
 ${HEAT_GLSL}
+${PILOT_GLSL}
+${EXTENDED_GLSL}
 void main() {
+  if (mode > 29.5) { gl_FragColor = renderExtended(vUv,mode); return; }
+  if (mode > 23.5) { gl_FragColor = renderDither(vUv); return; }
+  if (mode > 22.5) { gl_FragColor = renderFluted(vUv); return; }
   if (mode > 21.5) { gl_FragColor = renderHeat(vUv); return; }
   if (mode > 20.5) {
     vec4 center = texture2D(tDiffuse, vUv);
@@ -150,7 +159,7 @@ void main() {
     if (comicHatching > .5 && center.a > .01) {
       vec3 n = normalize(center.rgb*2.0-1.0);
       vec3 light = comicAmbient*.2+comicKey*.28*max(dot(n,comicKeyDirection),0.0)+comicFill*.28*max(dot(n,comicFillDirection),0.0);
-      float lit = clamp(dot(light,vec3(.299,.587,.114)),0.0,1.0);
+      float lit = stackInputDisplay > .5 ? luma(center.rgb) : clamp(dot(light,vec3(.299,.587,.114)),0.0,1.0);
       float dark = 1.0-clamp((lit-.5)*1.3+.5,0.0,1.0);
       vec2 p = gl_FragCoord.xy/comicPixelRatio;
       float a = radians(comicHatchAngle);
@@ -163,7 +172,8 @@ void main() {
     return;
   }
   if (mode < 0.5) {
-    gl_FragColor = texture2D(tDiffuse, vUv);
+    vec4 original = texture2D(tDiffuse, vUv);
+    gl_FragColor = vec4(pilotDisplay(original.rgb), original.a);
     return;
   }
   float cellSize = max(gridSize, 1.0);
@@ -214,3 +224,5 @@ void main() {
   }
 }
 `
+
+export const SHADER_FRAGMENT = compositionFragment(RAW_SHADER_FRAGMENT)

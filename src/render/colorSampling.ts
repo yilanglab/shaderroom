@@ -1,4 +1,9 @@
 export interface ColorCapture { canvas: HTMLCanvasElement; rect: DOMRect }
+let backgroundCapture: (() => HTMLCanvasElement) | undefined
+export function registerBackgroundCapture(provider: () => HTMLCanvasElement) {
+  backgroundCapture = provider
+  return () => { if (backgroundCapture === provider) backgroundCapture = undefined }
+}
 let capture: (() => ColorCapture) | undefined
 
 export function registerColorCapture(provider: () => ColorCapture) {
@@ -30,6 +35,7 @@ export function captureColorScene() {
   ctx.scale(ratio, ratio)
   ctx.fillStyle = style.backgroundColor
   ctx.fillRect(0, 0, rect.width, rect.height)
+  if (backgroundCapture) ctx.drawImage(backgroundCapture(), 0, 0, rect.width, rect.height)
   // The workspace has two white, one-CSS-pixel grid gradients anchored at 0 0.
   if (style.backgroundImage !== 'none') {
     const color = style.backgroundImage.match(/rgba?\([^)]+\)/)?.[0]

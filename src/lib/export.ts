@@ -1,3 +1,7 @@
+import { COMPOSITION_RECIPE, compositionFragment, validateEffectLayers } from './effectComposition'
+import { FLOW_RECIPE, backgroundUniformSettings } from '../render/flowBackground'
+import { EXTENDED_MODES, EXTENDED_RECIPE, extendedSettings } from '../render/extendedEffects'
+import { PILOT_RECIPE, pilotSettings } from '../render/shadersPilot'
 import { backgroundStyle } from './backgroundStyle'
 import { comicHatchLights } from '../render/comicHatching'
 import { DEFAULT_REFERENCE, isReferenceShader, buildReferenceUniforms, buildWordAtlasRecipe, WORD_ATLAS_SOURCE, REFERENCE_RECIPE, REFERENCE_VERTEX, REFERENCE_FRAGMENT } from '../render/referenceEffects'
@@ -14,11 +18,12 @@ import { DEFAULT_INTERACTION, INTERACTION_RECIPE, interactionMode, isNewInteract
 import { INTERACTIVE_POST_VERTEX, INTERACTIVE_POST_FRAGMENT, INTERACTIVE_MESH_VERTEX, INTERACTIVE_MESH_FRAGMENT, INTERACTIVE_EFFECT_RECIPE, buildInteractiveUniformValues, usesInteractiveMesh } from '../render/interactiveEffects'
 import type { BackgroundSettings, ExportInput, LightingSettings, ModelEntry } from '../types'
 
-function backgroundSpec(settings: BackgroundSettings) {
+function backgroundSpec(settings: BackgroundSettings, time = 0) {
   return {
     settings: { ...settings },
+    ...(settings.flow?.enabled ? { flow: { ...FLOW_RECIPE, uniforms: { colorA: displaySrgbVector(settings.flow.colors[0]), colorB: displaySrgbVector(settings.flow.colors[1]), colorC: displaySrgbVector(settings.flow.colors[2]), colorD: displaySrgbVector(settings.flow.colors[3]), ...backgroundUniformSettings(settings.flow), time, speed: 1, distortion: settings.flow.distortion, seed: settings.flow.seed, aspect: 'viewport width / height' } } } : {}),
     css: backgroundStyle(settings),
-    placement: 'Full-viewport CSS background beneath the transparent WebGL canvas. Grid sizes are CSS pixels; grid lines are 1 CSS pixel.',
+    placement: 'Full-viewport CSS background beneath the transparent WebGL canvas. If flow is present, implement its full-viewport quad below the model and place the transparent CSS grid above the flow quad. Grid sizes are CSS pixels; grid lines are 1 CSS pixel.',
   }
 }
 
@@ -161,7 +166,7 @@ function buildEffectSpec(input: ExportInput) {
     documentType: 'shader-room-export',
     generatedAt: new Date().toISOString(),
     scope: input.scope,
-    background: backgroundSpec(input.background),
+    background: backgroundSpec(input.background, input.snapshot.backgroundFlowTime ?? 0),
     lighting: lightingSpec(input.lighting, input.scope === 'shader' ? input.snapshot.camera : undefined),
   }
   if (input.scope === 'background') return base
@@ -233,7 +238,10 @@ function buildEffectSpec(input: ExportInput) {
     },
     parameters: { ...params },
     uniforms: {
+      stackInputDisplay: 0,
+      ...(input.shader in EXTENDED_MODES ? { ...extendedSettings(params) } : {}),
       tDiffuse: 'Texture from the scene pass WebGLRenderTarget (not embedded)',
+      ...(['fluted-glass','dither'].includes(input.shader) ? { ...pilotSettings(params), pilotPixelRatio: snapshot.viewport.pixelRatio } : {}),
       ...(input.shader === 'heatmap' ? { ...Object.fromEntries(HEAT_COLORS.map(key => [key, displaySrgbVector(heatSettings(params)[key])])), ...Object.fromEntries(HEAT_NUMBERS.map(key => [key, heatSettings(params)[key]])) } : {}),
       ...(input.shader === 'comic-line' ? {
         tDepth: 'WebGLRenderTarget.depthTexture: THREE.DepthTexture with UnsignedIntType; resized with target',
@@ -256,6 +264,8 @@ function buildEffectSpec(input: ExportInput) {
       levels: params.levels, saturation: params.saturation,
     },
     uniformConventions: {
+      ...(input.shader in EXTENDED_MODES ? { extendedEffects: EXTENDED_RECIPE } : {}),
+      ...(['fluted-glass','dither'].includes(input.shader) ? { shadersPilot: PILOT_RECIPE } : {}),
       ...(input.shader === 'comic-line' ? { comicHatching: 'Optional static shadow hatching uses decoded view-space normals and scene lights in observer coordinates, matching engraving light coefficients and darkness thresholds. Groups 1/2/3 use comicHatchAngle, comicHatchAngle+90, comicHatchAngle+45 degrees progressively in darker regions; default angle 35 degrees. Spacing 5 CSS pixels; widths .8/.64/.56 CSS pixels. Off preserves pure outlines. Hatching uses comicInk; no paper grain.' } : {}),
       ...(input.shader === 'heatmap' ? { heatmap: HEAT_RECIPE } : {}),
       ...(input.shader === 'comic-line' ? { comicLine: 'Static normal/depth edge detection, mode 21. Override scene material with THREE.MeshNormalMaterial({side:THREE.DoubleSide}) for the offscreen pass, then restore scene.overrideMaterial=null. Attach a THREE.DepthTexture to the RGBA render target. Clear RGBA to transparent, depth to 1. Use the actual camera near/far. Sample normals without color-space conversion. comicWidth is CSS line radius multiplied by pixelRatio; colors are display-sRGB. Fullscreen output is straight alpha, NoBlending, toneMapped:false. No time, lighting, or pointer dependence. Surface threshold suppresses smooth normal changes; depth discontinuities preserve overlapping structure.' } : {}),
@@ -300,7 +310,7 @@ function buildEffectSpec(input: ExportInput) {
   }
 }
 
-export function buildExportSpec(input: ExportInput) {
+function buildStandaloneExportSpec(input: ExportInput) {
   const spec = buildEffectSpec(input)
   if (input.scope === 'background' || !supportsInteraction(input.shader) || (!input.interaction && !isNewInteractive(input.shader))) return spec
   const settings = { ...(input.interaction ?? DEFAULT_INTERACTION) }
@@ -316,6 +326,33 @@ export function buildExportSpec(input: ExportInput) {
     ...spec,
     uniforms: { ...('uniforms' in spec ? spec.uniforms : {}), ...uniforms },
     interaction: { settings, snapshot: state, uniforms, recipe: INTERACTION_RECIPE },
+  }
+}
+
+export function buildExportSpec(input: ExportInput) {
+  if (input.scope === 'background' || !input.layers?.length) return buildStandaloneExportSpec(input)
+  validateEffectLayers(input.layers)
+  if (input.layers.length === 1) {
+    const layer = input.layers[0]
+    return buildStandaloneExportSpec({ ...input, ...layer, layers: undefined })
+  }
+  const base = buildStandaloneExportSpec({ ...input, ...input.layers[0], layers: undefined })
+  const layers = input.layers.map((layer, index) => {
+    const spec = buildStandaloneExportSpec({ ...input, ...layer, layers: undefined, snapshot: input.snapshot.composition?.[index] ?? input.snapshot })
+    const { background: _layerBackground, ...effectSpec } = spec
+    const sources = 'shaders' in spec ? spec.shaders : 'glsl' in spec ? spec.glsl : undefined
+    return {
+      index, ...effectSpec,
+      ...('interaction' in spec && spec.interaction ? { interaction: { ...spec.interaction, uniforms: { ...spec.interaction.uniforms, ...(!layer.interaction.enabled ? { uHover: 0 } : {}) } } } : {}),
+      uniforms: { ...('uniforms' in spec ? spec.uniforms : {}), stackInputDisplay: index === 0 ? 0 : 1, ...(!layer.interaction.enabled || !supportsInteraction(layer.shader) ? { uHover: 0 } : {}) },
+      ...(sources ? { shaders: { ...sources, fragment: compositionFragment(sources.fragment) } } : {}),
+      ...('glsl' in spec && sources ? { glsl: { ...sources, fragment: compositionFragment(sources.fragment) } } : {}),
+    }
+  })
+  return {
+    ...base,
+    effect: { id: 'composition', name: input.layers.map(layer => SHADERS.find(item => item.id === layer.shader)?.name ?? layer.shader).join(' → '), renderPath: 'effect-stack' },
+    composition: { ...COMPOSITION_RECIPE, layers },
   }
 }
 
@@ -368,8 +405,9 @@ function markdown(input: ExportInput, spec: ReturnType<typeof buildExportSpec>):
 场景灯光的 HEX 颜色交给 THREE.Color 常规解析，执行 sRGB→linear 转换。后处理 Shader 的 lightColor / shadowColor / highlightColor 则直接使用 HEX/255 得到的 display-sRGB vec3，不做线性化。这两处颜色处理需分别保留。`
   if (input.scope === 'background') {
     const { css } = spec.background
-    return `# Shader Room · 背景与灯光复现\n\n将以下背景应用于覆盖整个 viewport 的容器，3D canvas 保持透明。颜色采用 CSS sRGB；网格间距和线宽单位为 CSS px。灯光使用下方记录的当前配置。\n\n\`\`\`css\n.shader-room-background {\n  position: fixed;\n  inset: 0;\n  background-color: ${css.backgroundColor};\n  background-image: ${css.backgroundImage};\n  background-size: ${css.backgroundSize};\n  background-position: ${css.backgroundPosition};\n}\n\`\`\`\n\n${lightingInstructions}\n\n## 完整参数\n\n\`\`\`json\n${json}\n\`\`\`\n`
+    return `# Shader Room · 背景与灯光复现\n\n将以下背景应用于覆盖整个 viewport 的容器，3D canvas 保持透明。颜色采用 CSS sRGB；网格间距和线宽单位为 CSS px。灯光使用下方记录的当前配置。若完整参数含 background.flow，使用其中的 vertex、fragment 和 uniforms 建立独立背景画布，置于模型下方，CSS 网格置于渐变上方；仅应用 CSS 无法复现流动渐变及其他程序背景。\n\n\`\`\`css\n.shader-room-background {\n  position: fixed;\n  inset: 0;\n  background-color: ${css.backgroundColor};\n  background-image: ${css.backgroundImage};\n  background-size: ${css.backgroundSize};\n  background-position: ${css.backgroundPosition};\n}\n\`\`\`\n\n${lightingInstructions}\n\n## 完整参数\n\n\`\`\`json\n${json}\n\`\`\`\n`
   }
+  if ('composition' in spec) return `# Shader Room · 效果组合复现\n\n按照 composition.layers 数组顺序执行，先执行第 1 层，再执行第 2 层。每层使用自己的完整参数、uniforms、GLSL、字符图集和互动配方；不要合并同名参数。仅渲染一次模型，背景与网格始终在效果栈外。\n\n第 1 层读取线性场景输入；其输出 display-sRGB 以直通道 RGBA8 保存，第二层 stackInputDisplay=1，使用已嵌入的 stackTap 还原线性输入。所有全屏 pass 使用 NoBlending 和 toneMapped:false，不额外执行颜色转换。几何深度与法线另行采集原模型，按 composition.geometryInputs 保留。\n\n${lightingInstructions}\n\n## 完整组合 Spec\n\n\`\`\`json\n${json}\n\`\`\`\n`
   if (isNewInteractive(input.shader)) return [
     '# Shader Room · ' + (SHADERS.find(item => item.id === input.shader)?.name ?? input.shader),
     '## 重建步骤',

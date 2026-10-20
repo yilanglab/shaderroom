@@ -1,3 +1,7 @@
+import { DEFAULT_MODELS } from '../defaults'
+import { EXTENDED_KEYS, EXTENDED_DEFAULTS, extendedSettings } from './extendedEffects'
+import { compositionFragment } from '../lib/effectComposition'
+import { PILOT_KEYS, PILOT_DEFAULTS, pilotSettings } from './shadersPilot'
 import { REFERENCE_INPUT_MATERIAL, createReferenceMaterial, getReferenceAtlasDataUrl, updateReferenceMaterial, disposeReferenceMaterial, isReferenceShader } from './referenceEffects'
 import { advanceInteraction, isNewInteractive, supportsInteraction, interactionUniforms, updateInteractionUniforms, type InteractionSnapshot } from './interaction'
 import { createInteractiveMaterial, updateInteractiveMaterial, usesInteractiveMesh } from './interactiveEffects'
@@ -13,12 +17,12 @@ import { KTX2Loader } from 'three/addons/loaders/KTX2Loader.js'
 import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js'
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
 import { createBuiltinGeometry, createThumbnailRenderer } from './modelThumbnail'
-import type { ModelEntry, ModelStats, SceneSnapshot, StageHandle, StageProps } from '../types'
+import type { ModelEntry, ModelStats, SceneSnapshot, StageHandle, StageProps, EffectLayer } from '../types'
 import { SCENE_RECIPE, SHADER_FRAGMENT, SHADER_MODES, SHADER_VERTEX } from './shaders'
 import { comicHatchLights } from './comicHatching'
 import { HEAT_COLORS, HEAT_NUMBERS, HEAT_DEFAULTS, heatSettings } from './heatmap'
 import { buildViewLightRecipe, displaySrgbVector } from './lighting'
-import { attachModelZoom } from './modelZoom'
+import { attachModelZoom, MODEL_DEFAULT_SCALE } from './modelZoom'
 import { AMS_LOGO_SVG } from './particleLogo'
 import { PARTICLE_SAMPLE_SEED, sampleLogo, sampleModel } from './particleSampling'
 import { advanceParticleTimeline, buildParticleUniformValues, createParticlePoints, createParticleTimeline, particleSnapshot, playParticleTimeline, updateParticleUniforms } from './particleMorph'
@@ -63,7 +67,7 @@ function setDisplayColor(color: THREE.Color, hex: string) {
 function emptySnapshot(): SceneSnapshot {
   return {
     camera: { position: [0, 0, 12], target: [0, 0, 0], fov: 45, near: 0.1, far: 100 },
-    model: { position: [0, 0, 0], rotation: [0, 0, 0], scale: [1, 1, 1] },
+    model: { position: [0, 0, 0], rotation: [0, 0, 0], scale: [MODEL_DEFAULT_SCALE, MODEL_DEFAULT_SCALE, MODEL_DEFAULT_SCALE] },
     viewport: { width: 1, height: 1, pixelRatio: 1 },
   }
 }
@@ -205,6 +209,17 @@ const ShaderStage = forwardRef<StageHandle, StageProps>(function ShaderStage(pro
       if (ktx2Loader.transcoderPending) ktx2Loader.dispose()
       else ktx2Loader.workerPool.dispose()
     }
+    // GLB library previews must not depend on selecting that model on stage.
+    for (const entry of DEFAULT_MODELS) {
+      if (entry.kind !== 'glb' || !entry.url) continue
+      pendingGLBLoads += 1
+      void gltfLoader.loadAsync(entry.url).then(gltf => {
+        try {
+          if (alive) propsRef.current.onThumbnail(entry.id, thumbnails.render(gltf.scene))
+        } finally { disposeObject(gltf.scene) }
+      }).catch(error => { console.warn('Model thumbnail unavailable:', entry.id, error) })
+        .finally(() => { pendingGLBLoads -= 1; disposeDecodersWhenIdle() })
+    }
     const resolution = renderer.getDrawingBufferSize(new THREE.Vector2())
     const renderTarget = new THREE.WebGLRenderTarget(resolution.x, resolution.y, {
       format: THREE.RGBAFormat, type: THREE.UnsignedByteType, depthBuffer: true, stencilBuffer: false,
@@ -212,11 +227,17 @@ const ShaderStage = forwardRef<StageHandle, StageProps>(function ShaderStage(pro
     })
     renderTarget.texture.colorSpace = THREE.LinearSRGBColorSpace
     renderTarget.depthTexture = new THREE.DepthTexture(resolution.x, resolution.y)
+    const compositionTarget = new THREE.WebGLRenderTarget(resolution.x,resolution.y,{ depthBuffer:false,stencilBuffer:false })
+    compositionTarget.texture.colorSpace = THREE.LinearSRGBColorSpace
     const comicNormal = new THREE.MeshNormalMaterial({ side: THREE.DoubleSide })
     const postScene = new THREE.Scene()
     const postCamera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1)
     const postMaterial = new THREE.ShaderMaterial({
       uniforms: {
+        stackInputDisplay: { value: 0 },
+        ...Object.fromEntries(EXTENDED_KEYS.map(key => [key, { value: EXTENDED_DEFAULTS[key] }])),
+        pilotPixelRatio: { value: 1 },
+        ...Object.fromEntries(PILOT_KEYS.map(key => [key, { value: PILOT_DEFAULTS[key] }])),
         ...interactionUniforms(),
         comicHatching: { value: 0 }, comicHatchGroups: { value: 3 }, comicHatchAngle: { value: 35 }, comicPixelRatio: { value: 1 },
         ...Object.fromEntries(Object.keys(comicHatchLights(propsRef.current.lighting)).map(key => [key, { value: new THREE.Vector3() }])),
@@ -235,6 +256,7 @@ const ShaderStage = forwardRef<StageHandle, StageProps>(function ShaderStage(pro
     const referenceMaterial = createReferenceMaterial(renderTarget.texture)
     const interactivePost = createInteractiveMaterial(false)
     interactivePost.uniforms.tDiffuse.value=renderTarget.texture
+    for(const material of [referenceMaterial,interactivePost]) { material.fragmentShader=compositionFragment(material.fragmentShader); material.uniforms.stackInputDisplay={value:0}; }
     const interactiveMesh = createInteractiveMaterial(true)
     const quad = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), postMaterial)
     postScene.add(quad)
@@ -341,10 +363,15 @@ const ShaderStage = forwardRef<StageHandle, StageProps>(function ShaderStage(pro
       }
     }
 
-    function updateUniforms() {
-      const { shader, params } = propsRef.current
+    function updateUniforms(layer?: EffectLayer, applyScene = true) {
+      const { shader, params } = layer ?? propsRef.current
       const uniforms = postMaterial.uniforms
       uniforms.mode.value = SHADER_MODES[shader]
+      uniforms.pilotPixelRatio.value = renderer.getPixelRatio()
+      const extended = extendedSettings(params)
+      for(const key of EXTENDED_KEYS) uniforms[key].value = extended[key]
+      const pilot = pilotSettings(params)
+      for (const key of PILOT_KEYS) uniforms[key].value = pilot[key]
       const heat = heatSettings(params)
       for (const key of HEAT_COLORS) setDisplayColor(uniforms[key].value, heat[key])
       for (const key of HEAT_NUMBERS) uniforms[key].value = heat[key]
@@ -363,7 +390,7 @@ const ShaderStage = forwardRef<StageHandle, StageProps>(function ShaderStage(pro
       setDisplayColor(uniforms.lightColor.value as THREE.Color, params.lightColor)
       setDisplayColor(uniforms.shadowColor.value as THREE.Color, params.shadowColor)
       setDisplayColor(uniforms.highlightColor.value as THREE.Color, params.highlightColor)
-      if (active && appliedShader !== shader) {
+      if (applyScene && active && appliedShader !== shader) {
         restoreRefinement()
         refineForInteraction()
         for (const [mesh, material] of active.materials) mesh.material = usesInteractiveMesh(shader) ? interactiveMesh : isNewInteractive(shader) || shader === 'original' || shader === 'particle-morph' ? material : isSurfaceShader(shader) ? surfaceMaterial : isReferenceShader(shader) ? referenceBaseMaterial : whiteMaterial
@@ -391,7 +418,8 @@ const ShaderStage = forwardRef<StageHandle, StageProps>(function ShaderStage(pro
     function renderNow() {
       if (!alive) return
       updatePose()
-      updateUniforms()
+      const layers = propsRef.current.layers
+      updateUniforms(layers?.[0])
       updateLighting()
       ensureParticles()
       for(const material of [postMaterial,referenceMaterial,surfaceMaterial,interactivePost,interactiveMesh]) updateInteractionUniforms(material,propsRef.current.interaction,interactionState,width,height)
@@ -403,11 +431,11 @@ const ShaderStage = forwardRef<StageHandle, StageProps>(function ShaderStage(pro
       if (particlePoints && propsRef.current.shader === 'particle-morph') {
         updateParticleUniforms(particlePoints, buildParticleUniformValues({ settings: propsRef.current.particle, view: propsRef.current.view, snapshot: particleSnapshot(particleTimeline), lighting: propsRef.current.lighting, pixelRatio: renderer.getPixelRatio(), camera: { position: camera.position.toArray(), target: controls.target.toArray() } }))
       }
-      const surfaceId = propsRef.current.shader
+      const surfaceId = layers?.[0]?.shader ?? propsRef.current.shader
       if (isSurfaceShader(surfaceId)) {
         updateSurfaceMaterial(surfaceMaterial, buildSurfaceUniforms(surfaceId, propsRef.current.surface, { time: surfaceTime, dissolve: dissolveState }, propsRef.current.lighting, runtime.getSnapshot()), surfaceId)
       }
-      if (propsRef.current.shader === 'original' || propsRef.current.shader === 'particle-morph' || isSurfaceShader(surfaceId) || usesInteractiveMesh(surfaceId)) {
+      if (!layers && (surfaceId === 'original' || surfaceId === 'particle-morph' || isSurfaceShader(surfaceId) || usesInteractiveMesh(surfaceId))) {
         renderer.setRenderTarget(null)
         renderer.render(scene, camera)
       } else {
@@ -415,12 +443,25 @@ const ShaderStage = forwardRef<StageHandle, StageProps>(function ShaderStage(pro
         if (surfaceId === 'comic-line' || surfaceId === 'heatmap') scene.overrideMaterial = comicNormal
         renderer.render(scene, camera)
         scene.overrideMaterial = null
-        renderer.setRenderTarget(null)
-        if(isReferenceShader(surfaceId)) {
-          updateReferenceMaterial(referenceMaterial,propsRef.current.reference,surfaceId,{time:referenceTime,viewport:{width,height,pixelRatio:renderer.getPixelRatio()}})
-          quad.material=referenceMaterial
-        } else quad.material=isNewInteractive(surfaceId)?interactivePost:postMaterial
-        renderer.render(postScene, postCamera)
+        const passes = layers ?? [{ shader: surfaceId, params: propsRef.current.params, reference: propsRef.current.reference, interaction: propsRef.current.interaction }]
+        for (const [index,layer] of passes.entries()) {
+          updateUniforms(layer,false)
+          let material = postMaterial
+          if(isReferenceShader(layer.shader)) {
+            updateReferenceMaterial(referenceMaterial,layer.reference,layer.shader,{time:referenceTime,viewport:{width,height,pixelRatio:renderer.getPixelRatio()}})
+            material=referenceMaterial
+          } else if(isNewInteractive(layer.shader)) {
+            updateInteractiveMaterial(interactivePost,layer.shader,layer.interaction,propsRef.current.lighting)
+            material=interactivePost
+          }
+          material.uniforms.tDiffuse.value = index === 0 ? renderTarget.texture : compositionTarget.texture
+          material.uniforms.stackInputDisplay.value = index === 0 ? 0 : 1
+          updateInteractionUniforms(material,layer.interaction,interactionState,width,height)
+          if(layers && (!layer.interaction.enabled || !supportsInteraction(layer.shader))) material.uniforms.uHover.value=0
+          quad.material=material
+          renderer.setRenderTarget(index < passes.length-1 ? compositionTarget : null)
+          renderer.render(postScene,postCamera)
+        }
       }
     }
 
@@ -575,7 +616,7 @@ const ShaderStage = forwardRef<StageHandle, StageProps>(function ShaderStage(pro
         }
       },
       resetView() {
-        detachModelZoom.syncScale(1)
+        detachModelZoom.syncScale(MODEL_DEFAULT_SCALE)
         autoRotation = 0
         fitCamera(true)
         renderNow()
@@ -607,7 +648,7 @@ const ShaderStage = forwardRef<StageHandle, StageProps>(function ShaderStage(pro
       getSnapshot() {
         updatePose()
         if(isReferenceShader(propsRef.current.shader)) updateReferenceMaterial(referenceMaterial,propsRef.current.reference,propsRef.current.shader,{time:referenceTime,viewport:{width,height,pixelRatio:renderer.getPixelRatio()}})
-        return {
+        const snapshot: SceneSnapshot = {
           interaction: { ...interactionState, pointer: [...interactionState.pointer], velocity: [...interactionState.velocity] },
           reducedMotion: reducedMotionQuery.matches,
           camera: { position: camera.position.toArray(), target: controls.target.toArray(), fov: camera.fov, near: camera.near, far: camera.far },
@@ -618,6 +659,13 @@ const ShaderStage = forwardRef<StageHandle, StageProps>(function ShaderStage(pro
           ...(propsRef.current.shader === 'ascii' ? { ascii: { elapsed: asciiElapsed, tick: Math.floor(asciiElapsed * (propsRef.current.params.asciiSpeed ?? 3)), randomize: !!propsRef.current.params.asciiRandomize && !reducedMotionQuery.matches } } : {}),
           ...(propsRef.current.shader === 'particle-morph' ? { particle: particleSnapshot(particleTimeline) } : {}),
         }
+        if(propsRef.current.layers) snapshot.composition=propsRef.current.layers.map(layer=>{
+          const result = { ...snapshot }; delete result.composition; delete result.reference; delete result.ascii;
+          if(isReferenceShader(layer.shader)) { updateReferenceMaterial(referenceMaterial,layer.reference,layer.shader,{time:referenceTime,viewport:snapshot.viewport}); result.reference={time:referenceTime,...(layer.shader==='word-mosaic'?{atlasDataUrl:getReferenceAtlasDataUrl(referenceMaterial)}:{})}; }
+          if(layer.shader==='ascii') result.ascii={elapsed:asciiElapsed,tick:Math.floor(asciiElapsed*layer.params.asciiSpeed),randomize:layer.params.asciiRandomize&&!reducedMotionQuery.matches};
+          return result;
+        });
+        return snapshot
       },
     }
     runtimeRef.current = runtime
@@ -630,6 +678,7 @@ const ShaderStage = forwardRef<StageHandle, StageProps>(function ShaderStage(pro
       renderer.setSize(width, height)
       renderer.getDrawingBufferSize(resolution)
       renderTarget.setSize(resolution.x, resolution.y)
+      compositionTarget.setSize(resolution.x,resolution.y)
       camera.aspect = width / height
       camera.updateProjectionMatrix()
       fitCamera(false)
@@ -669,10 +718,10 @@ const ShaderStage = forwardRef<StageHandle, StageProps>(function ShaderStage(pro
       const key=propsRef.current.model.id+':'+shader
       if(interactionKey!==key){interactionKey=key;interactionState.amount=0;interactionState.velocity=[0,0];pointerInside=false;interactionState.time=0}
       const interaction=propsRef.current.interaction
-      const eligible=pointerInside&&!pointerDown&&interaction.enabled&&supportsInteraction(shader)&&loadState==='ready'
+      const eligible=pointerInside&&!pointerDown&&(propsRef.current.layers?.some(layer=>layer.interaction.enabled&&supportsInteraction(layer.shader)) ?? (interaction.enabled&&supportsInteraction(shader)))&&loadState==='ready'
       const reduced=reducedMotionQuery.matches
       advanceInteraction(interactionState,[pointerTarget.x,pointerTarget.y],delta,interaction.follow,eligible,reduced)
-      if(isReferenceShader(shader) && propsRef.current.reference.animate && !reducedMotionQuery.matches) referenceTime+=delta
+      if((propsRef.current.layers?.some(layer=>isReferenceShader(layer.shader)&&layer.reference.animate) ?? (isReferenceShader(shader) && propsRef.current.reference.animate)) && !reducedMotionQuery.matches) referenceTime+=delta
       if (!reducedMotionQuery.matches && ((shader === 'hologram' && surface.hologramAnimate) || (shader === 'iridescent' && surface.metalAnimate))) surfaceTime += delta
       if (shader === 'dissolve' && dissolveState.playing) {
         dissolveState = advanceDissolve(dissolveState, delta, reducedMotionQuery.matches)
@@ -681,7 +730,7 @@ const ShaderStage = forwardRef<StageHandle, StageProps>(function ShaderStage(pro
           propsRef.current.onDissolveState(dissolveState)
         }
       }
-      if (propsRef.current.shader === 'ascii' && propsRef.current.params.asciiRandomize && !reducedMotionQuery.matches) asciiElapsed += delta
+      if ((propsRef.current.layers?.some(layer=>layer.shader==='ascii'&&layer.params.asciiRandomize) ?? (propsRef.current.shader === 'ascii' && propsRef.current.params.asciiRandomize)) && !reducedMotionQuery.matches) asciiElapsed += delta
       if (active && propsRef.current.shader !== 'particle-morph' && propsRef.current.view.autoRotate) autoRotation += propsRef.current.view.rotateSpeed * delta
       if (particlePoints && propsRef.current.shader === 'particle-morph') {
         particleTimeline = advanceParticleTimeline(particleTimeline, delta, propsRef.current.particle, reducedMotionQuery.matches)
@@ -730,6 +779,7 @@ const ShaderStage = forwardRef<StageHandle, StageProps>(function ShaderStage(pro
       comicNormal.dispose()
       interactivePost.dispose();interactiveMesh.dispose()
       renderTarget.dispose()
+      compositionTarget.dispose()
       thumbnails.dispose()
       renderer.dispose()
       renderer.domElement.remove()

@@ -1,4 +1,5 @@
 import { DEFAULT_REFERENCE } from '../src/render/referenceEffects'
+import { BACKGROUND_PRESETS } from '../src/render/flowBackground'
 import { DEFAULT_SURFACE } from '../src/render/surfaceEffects'
 import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
@@ -86,7 +87,7 @@ test('shader JSON preserves captured state, complete sources, dependencies and r
   assert.equal(result.sceneRecipe.controls.enableZoom, false)
   assert.equal(result.sceneRecipe.controls.touches.TWO, null)
   assert.equal(result.sceneRecipe.controls.minDistance, result.sceneRecipe.controls.maxDistance)
-  assert.deepEqual([result.sceneRecipe.modelZoom.min, result.sceneRecipe.modelZoom.max, result.sceneRecipe.modelZoom.step], [0.4, 2, 0.01])
+  assert.deepEqual([result.sceneRecipe.modelZoom.min, result.sceneRecipe.modelZoom.max, result.sceneRecipe.modelZoom.step], [0.4, 4, 0.01])
   assert.match(result.units.scale, /shared by canvas wheel, two-touch pinch and the panel/)
   assert.deepEqual(result.lighting.settings, source.lighting)
   assert.deepEqual(result.lighting.lights, result.sceneRecipe.lights)
@@ -487,5 +488,53 @@ test('live and exported grids use dark ink on light backgrounds and white ink on
     const style = backgroundStyle(data.background)
     assert.ok(style.backgroundImage.includes(`rgba(${rgb},`))
     assert.deepEqual(buildExportSpec(data).background.css, style)
+  }
+})
+
+test('Shaders pilot exports modified parameters, CSS pixel units and exact GLSL', () => {
+  const source = input({ shader: 'dither', params: { ...DEFAULT_PARAMS, ditherSize: 6, ditherPattern: 2, ditherThreshold: .65 } })
+  const spec = buildExportSpec(source) as any
+  assert.equal(spec.uniforms.ditherSize, 6)
+  assert.equal(spec.uniforms.ditherPattern, 2)
+  assert.equal(spec.uniforms.pilotPixelRatio, 1.25)
+  assert.match(spec.glsl.fragment, /renderDither/)
+  assert.match(spec.uniformConventions.shadersPilot.dither, /Bayer 2\/4\/8/)
+  const glass = buildExportSpec(input({ shader: 'fluted-glass', params: { ...DEFAULT_PARAMS, fluteAngle: 75, fluteAberration: .6 } })) as any
+  assert.equal(glass.uniforms.fluteAngle, 75)
+  assert.equal(glass.uniforms.fluteAberration, .6)
+  assert.match(glass.glsl.fragment, /renderFluted/)
+})
+
+test('flow background exports GPU source, editable colors and integrated phase in background-only Markdown', () => {
+  const source = input({ scope: 'background', format: 'md', background: { ...DEFAULT_BACKGROUND, flow: { enabled: true, colors: ['#123456','#abcdef','#ffffff','#000000'], speed: 0, distortion: 1.2, seed: 17 } } })
+  source.snapshot.backgroundFlowTime = 12.345
+  const spec = buildExportSpec(source) as any
+  assert.equal(spec.background.flow.uniforms.time, 12.345)
+  assert.equal(spec.background.flow.uniforms.speed, 1)
+  assert.equal(spec.background.settings.flow.speed, 0)
+  assert.deepEqual(spec.background.flow.uniforms.colorA, [18/255,52/255,86/255])
+  assert.equal(spec.background.flow.uniforms.seed, 17)
+  assert.match(spec.background.flow.fragment, /noise3/)
+  assert.match(buildExportDocument(source).content, /仅应用 CSS 无法复现流动渐变/)
+  assert.equal((buildExportSpec(input()) as any).background.flow, undefined)
+})
+
+test('procedural background presets export their mode, modified controls and complete source', () => {
+  for (const [mode, preset] of BACKGROUND_PRESETS.entries()) {
+    const source = input({ scope: 'background', format: 'md', background: { ...DEFAULT_BACKGROUND, flow: { ...preset.settings, scale: 2.3, intensity: .8, grain: .12, speed: 0 } } })
+    source.snapshot.backgroundFlowTime = 8.75
+    const content = buildPrompt(source, 'background')
+    const spec = JSON.parse(content.match(/```json\n([\s\S]*?)\n```/)![1])
+    assert.equal(spec.background.settings.flow.kind, preset.kind)
+    assert.equal(spec.background.flow.uniforms.mode, mode)
+    assert.equal(spec.background.flow.uniforms.scale, 2.3)
+    assert.equal(spec.background.flow.uniforms.intensity, .8)
+    assert.equal(spec.background.flow.uniforms.grain, .12)
+    assert.equal(spec.background.flow.uniforms.time, 8.75)
+    assert.match(spec.background.css.backgroundImage, /rgba\(255, 255, 255,/)
+    assert.match(spec.background.flow.fragment, /vec3 procedural/)
+    assert.equal('model' in spec, false)
+    const disabled = buildExportSpec({ ...source, background: { ...source.background, flow: { ...source.background.flow!, enabled: false } } }) as any
+    assert.equal(disabled.background.flow, undefined)
   }
 })

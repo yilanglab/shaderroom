@@ -1,7 +1,8 @@
+import type { ExtendedParams } from './render/extendedEffects'
 import type { ReferenceSettings } from './render/referenceEffects'
 import type { NewInteractiveId, InteractionSettings, InteractionSnapshot } from './render/interaction'
 import type { SurfaceSettings, SurfaceSnapshot, DissolveState } from './render/surfaceEffects'
-export type ShaderId = NewInteractiveId | 'heatmap' | 'comic-line' | 'cross-stitch' | 'original' | 'halftone' | 'pixelate' | 'toon' | 'particle-morph' | 'ascii' | 'engraving' | 'hologram' | 'iridescent' | 'dissolve' | 'glyph-matrix' | 'adaptive-grid' | 'word-mosaic' | 'pixel-glyph'
+export type ShaderId = NewInteractiveId | 'contour-lines' | 'watercolor' | 'emboss' | 'pixel-sort' | 'frost' | 'glass-tiles' | 'crt-screen' | 'shatter' | 'fluted-glass' | 'dither' | 'heatmap' | 'comic-line' | 'cross-stitch' | 'original' | 'halftone' | 'pixelate' | 'toon' | 'particle-morph' | 'ascii' | 'engraving' | 'hologram' | 'iridescent' | 'dissolve' | 'glyph-matrix' | 'adaptive-grid' | 'word-mosaic' | 'pixel-glyph'
 export type ModelKind = 'fbx' | 'glb' | 'sphere' | 'torus-knot' | 'rounded-cube'
 export interface ModelEntry {
   id: string
@@ -14,7 +15,17 @@ export interface ModelEntry {
   sha256?: string
   thumbnail?: string
 }
-export interface ShaderParams {
+export interface ShaderParams extends Partial<ExtendedParams> {
+  fluteAngle?: number
+  fluteFrequency?: number
+  fluteSoftness?: number
+  fluteRefraction?: number
+  fluteAberration?: number
+  fluteHighlight?: number
+  ditherSize?: number
+  ditherPattern?: number
+  ditherThreshold?: number
+  ditherSpread?: number
   heatCold?: string
   heatCool?: string
   heatMid?: string
@@ -47,7 +58,10 @@ export interface ShaderParams {
   levels: number
   saturation: number
 }
+export type BackgroundKind = 'flow' | 'aurora' | 'noise' | 'orbit'
+export interface FlowSettings { kind?: BackgroundKind; scale?: number; intensity?: number; grain?: number; enabled: boolean; colors: [string, string, string, string]; speed: number; distortion: number; seed: number }
 export interface BackgroundSettings {
+  flow?: FlowSettings
   color: string
   grid: boolean
   gridSize: number
@@ -107,6 +121,8 @@ export interface ParticleSnapshot extends ParticlePlayback {
 }
 export interface ModelStats { meshes: number; triangles: number; animations: number }
 export interface SceneSnapshot {
+  composition?: SceneSnapshot[]
+  backgroundFlowTime?: number
   camera: { position: [number, number, number]; target: [number, number, number]; fov: number; near: number; far: number }
   model: { position: [number, number, number]; rotation: [number, number, number]; scale: [number, number, number] }
   viewport: { width: number; height: number; pixelRatio: number }
@@ -126,7 +142,9 @@ export interface StageHandle {
   setDissolveProgress(value: number): void
   getSnapshot(): SceneSnapshot
 }
+export interface EffectLayer { shader: ShaderId; params: ShaderParams; reference: ReferenceSettings; interaction: InteractionSettings }
 export interface StageProps {
+  layers?: EffectLayer[]
   interaction: InteractionSettings
   model: ModelEntry
   shader: ShaderId
@@ -147,6 +165,7 @@ export interface StageProps {
 export type ExportScope = 'background' | 'shader'
 export type ExportFormat = 'json' | 'md'
 export interface ExportInput {
+  layers?: EffectLayer[]
   interaction?: InteractionSettings
   scope: ExportScope
   format: ExportFormat

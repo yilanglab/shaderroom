@@ -1,7 +1,11 @@
+import { EXTENDED_CONTROLS, extendedSettings } from './render/extendedEffects'
+import { FlowBackground } from './components/FlowBackground'
+import { DEFAULT_FLOW, BACKGROUND_PRESETS } from './render/flowBackground'
+import { pilotSettings } from './render/shadersPilot'
 import { InfoTip } from './components/InfoTip'
 import { HEAT_COLORS, HEAT_PRESETS, heatSettings } from './render/heatmap'
 import { PanelSelect } from './components/PanelSelect'
-import { ListFilter, ArrowRightLeft } from 'lucide-react'
+import { ListFilter, ArrowRightLeft, Layers, ArrowUpToLine, ArrowDownToLine } from 'lucide-react'
 import { DEFAULT_INTERACTION, isNewInteractive, supportsInteraction, type InteractionSettings } from './render/interaction'
 import { MousePointer2 as HoverPointer } from 'lucide-react'
 import { PromptScopeSelect } from './components/PromptScopeSelect'
@@ -20,7 +24,7 @@ import { buildPrompt, type PromptScope } from './lib/prompt'
 import { backgroundStyle as buildBackgroundStyle } from './lib/backgroundStyle'
 import { prepareModelFile } from './lib/upload'
 import { BACKGROUND_COLORS, EFFECT_BACKGROUNDS, DEFAULT_LIGHTING, DEFAULT_MODELS, DEFAULT_PARAMS, DEFAULT_PARTICLE, DEFAULT_VIEW, SHADERS } from './defaults'
-import type { BackgroundSettings, DirectionalLightSettings, LightingSettings, LightSettings, ModelEntry, ModelStats, ParticlePlayback, ParticleSettings, ShaderId, ShaderParams, StageHandle, ViewSettings } from './types'
+import type { EffectLayer, BackgroundSettings, DirectionalLightSettings, LightingSettings, LightSettings, ModelEntry, ModelStats, ParticlePlayback, ParticleSettings, ShaderId, ShaderParams, StageHandle, ViewSettings } from './types'
 
 function ToolbarTooltip({ label, children }: { label: string; children: ReactElement<{ 'aria-describedby'?: string }> }) {
   const id = useId()
@@ -31,6 +35,8 @@ function ToolbarTooltip({ label, children }: { label: string; children: ReactEle
 
 type LeftTab = 'models' | 'effects'
 type RightTab = 'background' | 'shader'
+const COMPOSITION_EXCLUDED: ShaderId[] = ['particle-morph', 'engraving', 'hologram', 'iridescent', 'dissolve', 'magnetic-pull', 'material-reveal', 'elastic-indent']
+const canCompose = (id: ShaderId) => !COMPOSITION_EXCLUDED.includes(id)
 
 function TabButton({ active, children, onClick, id, controls }: { active: boolean; children: ReactNode; onClick: () => void; id: string; controls: string }) {
   return <button type="button" role="tab" aria-selected={active} aria-controls={controls} id={id} tabIndex={active ? 0 : -1} className={`tab-button ${active ? 'active' : ''}`} onClick={onClick}>{children}</button>
@@ -137,6 +143,9 @@ export default function App() {
     setInteractions(previous => ({ ...previous, [shader]: { ...(previous[shader] ?? DEFAULT_INTERACTION), [key]: value } }))
   }
   const [params, setParams] = useState<ShaderParams>(DEFAULT_PARAMS)
+  const [combinationEnabled, setCombinationEnabled] = useState(false)
+  const [layerOrder, setLayerOrder] = useState<ShaderId[]>([])
+  const [layerSettings, setLayerSettings] = useState<Partial<Record<ShaderId, Pick<EffectLayer, 'params' | 'reference'>>>>({})
   const [reference,setReference] = useState(DEFAULT_REFERENCE)
   const changeReference = <K extends keyof ReferenceSettings>(key:K,value:ReferenceSettings[K])=>setReference(prev=>({...prev,[key]:value}))
   const [surface, setSurface] = useState(DEFAULT_SURFACE)
@@ -145,11 +154,13 @@ export default function App() {
   const [particle, setParticle] = useState<ParticleSettings>(DEFAULT_PARTICLE)
   const [particlePlayback, setParticlePlayback] = useState<ParticlePlayback>({ phase: 'logo', progress: 0, ready: false })
   const [reducedMotion, setReducedMotion] = useState(() => window.matchMedia('(prefers-reduced-motion: reduce)').matches)
+  const flowClock = useRef(0)
   const [background, setBackground] = useState<BackgroundSettings>(() => ({ ...EFFECT_BACKGROUNDS[selectedShader] }))
-  const [panelTheme, setPanelTheme] = useState(() => panelThemeForColor(background.color))
+  const themeColor = background.flow?.enabled ? background.flow.colors[0] : background.color
+  const [panelTheme, setPanelTheme] = useState(() => panelThemeForColor(themeColor))
   useLayoutEffect(() => {
-    setPanelTheme(previous => panelThemeForColor(background.color, previous))
-  }, [background.color])
+    setPanelTheme(previous => panelThemeForColor(themeColor, previous))
+  }, [themeColor])
   useLayoutEffect(() => {
     // The document root also themes colour-picker portals mounted under body.
     document.documentElement.dataset.panelTheme = panelTheme
@@ -162,8 +173,16 @@ export default function App() {
   const [effectFilter, setEffectFilter] = useState<'all' | 'animated' | 'interactive'>('all')
   const visibleEffects = SHADERS.filter(effect => effectFilter === 'all' || (effectFilter === 'interactive' ? supportsInteraction(effect.id) : ['particle-morph', 'hologram', 'iridescent', 'dissolve', 'ascii', 'glyph-matrix', 'word-mosaic', 'pixel-glyph'].includes(effect.id)))
   const [rightTab, setRightTab] = useState<RightTab>('shader')
-  const [leftOpen, setLeftOpen] = useState(() => window.innerWidth > 640)
-  const [rightOpen, setRightOpen] = useState(() => window.innerWidth > 900)
+  const [leftOpen, setLeftOpen] = useState(false)
+  const [rightOpen, setRightOpen] = useState(false)
+  useEffect(() => {
+    // Briefly expose the collapsed controls, then demonstrate the existing morph.
+    const timer = window.setTimeout(() => {
+      setLeftOpen(window.innerWidth > 640)
+      setRightOpen(window.innerWidth > 900)
+    }, window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 0 : 450)
+    return () => window.clearTimeout(timer)
+  }, [])
   const [isDragging, setIsDragging] = useState(false)
   const [uploading, setUploading] = useState(false)
   const [uploadError, setUploadError] = useState('')
@@ -178,6 +197,10 @@ export default function App() {
   const [toast, setToast] = useState('')
   const [helpOpen, setHelpOpen] = useState(false)
   const model = models.find(item => item.id === selectedId) ?? DEFAULT_MODELS[0]
+  const layers: EffectLayer[] | undefined = combinationEnabled ? layerOrder.map(id => ({ shader: id, params: id === shader ? params : layerSettings[id]?.params ?? DEFAULT_PARAMS, reference: id === shader ? reference : layerSettings[id]?.reference ?? DEFAULT_REFERENCE, interaction: interactions[id] ?? DEFAULT_INTERACTION })) : undefined
+  const hoverIds = (layers?.map(layer=>layer.shader) ?? [shader]).filter(supportsInteraction)
+  const hoverEnabled = hoverIds.some(id => (interactions[id] ?? DEFAULT_INTERACTION).enabled)
+  function toggleHover() { setInteractions(previous => { const next = { ...previous }; for(const id of hoverIds) next[id]={...(previous[id] ?? DEFAULT_INTERACTION),enabled:!hoverEnabled}; return next }); }
   const currentShader = SHADERS.find(item => item.id === shader)!
   const isParticle = shader === 'particle-morph'
   const particlePlaying = particlePlayback.phase === 'to-model' || particlePlayback.phase === 'to-logo'
@@ -189,6 +212,45 @@ export default function App() {
     setToast(message); clearTimeout(toastTimer.current)
     toastTimer.current = setTimeout(() => setToast(''), 3600)
   }, [])
+  function editLayer(id: ShaderId) {
+    if (id === shader) return
+    setLayerSettings(previous => ({ ...previous, [shader]: { params, reference } }))
+    setParams(layerSettings[id]?.params ?? DEFAULT_PARAMS)
+    setReference(layerSettings[id]?.reference ?? DEFAULT_REFERENCE)
+    setShader(id)
+    setRightTab('shader')
+  }
+  function toggleCombination() {
+    if (combinationEnabled) { setCombinationEnabled(false); return }
+    const id = canCompose(shader) ? shader : 'original'
+    setLayerOrder([id])
+    setLayerSettings({ [id]: { params, reference } })
+    setShader(id)
+    setCombinationEnabled(true)
+    setRightTab('shader')
+  }
+  function chooseEffect(id: ShaderId) {
+    if (!combinationEnabled) {
+      if (id !== shader) { setShader(id); setBackground({ ...EFFECT_BACKGROUNDS[id] }) }
+      setRightTab('shader'); return
+    }
+    if (!canCompose(id)) return
+    if (layerOrder.includes(id)) {
+      if (layerOrder.length === 2) {
+        const remaining = layerOrder.find(value => value !== id)!
+        if (shader === id) editLayer(remaining)
+        setLayerOrder([remaining])
+      } else setRightTab('shader')
+      return
+    }
+    if (layerOrder.length >= 2) { notify('最多组合 2 个效果，请先取消一个已选效果'); return }
+    setLayerSettings(previous => ({ ...previous, [shader]: { params, reference } }))
+    setLayerOrder(previous => [...previous, id])
+    setParams(layerSettings[id]?.params ?? DEFAULT_PARAMS)
+    setReference(layerSettings[id]?.reference ?? DEFAULT_REFERENCE)
+    setShader(id)
+    setRightTab('shader')
+  }
   useEffect(() => () => { for (const url of uploadUrls.current) URL.revokeObjectURL(url); clearTimeout(toastTimer.current) }, [])
   useEffect(() => {
     const media = window.matchMedia('(prefers-reduced-motion: reduce)')
@@ -220,7 +282,7 @@ export default function App() {
   const onLoading = useCallback(() => { setLoading(true); setStageError(''); setStats(null) }, [])
   const onScaleChange = useCallback((scale: number) => setView(prev => prev.scale === scale ? prev : { ...prev, scale }), [])
   function selectModel(id: string) {
-    if (id !== selectedId) { setSelectedId(id); setView(prev => ({ ...prev, scale: 1, rotationX: 0, rotationY: 0, rotationZ: 0 })) }
+    if (id !== selectedId) { setSelectedId(id); setView(prev => ({ ...prev, scale: DEFAULT_VIEW.scale, rotationX: 0, rotationY: 0, rotationZ: 0 })) }
   }
   function togglePanel(side: 'left' | 'right') {
     const opening = side === 'left' ? !leftOpen : !rightOpen
@@ -264,7 +326,7 @@ export default function App() {
     if (!stageRef.current || copying) return
     setCopying(true)
     try {
-      const content = buildPrompt({ scope: 'shader', format: 'md', model, shader, params, background, lighting, view, particle, surface, reference, interaction, snapshot: stageRef.current.getSnapshot(), stats }, promptScope)
+      const content = buildPrompt({ scope: 'shader', format: 'md', model, shader, params, background, lighting, view, particle, surface, reference, interaction, layers, snapshot: { ...stageRef.current.getSnapshot(), backgroundFlowTime: flowClock.current }, stats }, promptScope)
       await navigator.clipboard.writeText(content)
       notify('已复制提示词')
     } catch (error) {
@@ -272,10 +334,11 @@ export default function App() {
     } finally { setCopying(false) }
   }
   const backgroundStyle = buildBackgroundStyle(background)
-  const luminance = [1, 3, 5].map((index) => parseInt(background.color.slice(index, index + 2), 16)).reduce((a, v, i) => a + v * [0.299, 0.587, 0.114][i], 0)
+  const luminance = [1, 3, 5].map((index) => parseInt(themeColor.slice(index, index + 2), 16)).reduce((a, v, i) => a + v * [0.299, 0.587, 0.114][i], 0)
 
   return <main className={`workspace ${luminance > 165 ? 'light-canvas' : ''}`} style={backgroundStyle}>
-    <div className="stage-layer" aria-label="3D 模型预览区"><ShaderStage interaction={interaction} key={retryKey} ref={stageRef} model={model} shader={shader} params={params} lighting={lighting} view={view} particle={particle} surface={surface} reference={reference} onDissolveState={setDissolvePlayback} onParticleState={setParticlePlayback} onScaleChange={onScaleChange} onThumbnail={onThumbnail} onReady={onReady} onError={onError} onLoading={onLoading} /></div>
+    {background.flow?.enabled && <><FlowBackground settings={background.flow} clock={flowClock} /><div className="flow-grid" aria-hidden="true" style={{ ...backgroundStyle, backgroundColor: 'transparent' }} /></>}
+    <div className="stage-layer" aria-label="3D 模型预览区"><ShaderStage layers={layers} interaction={interaction} key={retryKey} ref={stageRef} model={model} shader={shader} params={params} lighting={lighting} view={view} particle={particle} surface={surface} reference={reference} onDissolveState={setDissolvePlayback} onParticleState={setParticlePlayback} onScaleChange={onScaleChange} onThumbnail={onThumbnail} onReady={onReady} onError={onError} onLoading={onLoading} /></div>
     <header className="workspace-header">
       <a className="brand" href={PUBLIC_BASE} aria-label="Shader Room 首页"><span className="brand-mark" aria-hidden="true">✳</span><span>shader<span className="brand-room">room</span><span className="brand-dot">.</span></span></a>
       <div className="header-caption">3D 模型 × 材质实验</div>
@@ -320,12 +383,22 @@ export default function App() {
           <TabPane active={leftTab === 'effects'} side="right" className="left-scroll">
           <section id="effects-panel" role="tabpanel" aria-labelledby="effects-tab">
             <div className="section-heading effect-library-heading"><h2>效果库</h2><div className="effect-library-controls">
+              <ToolbarTooltip label={combinationEnabled ? '关闭效果组合' : '启用效果组合（最多 2 个）'}><button type="button" className={`prompt-scope-trigger composition-toggle ${combinationEnabled ? 'active' : ''}`} aria-label="效果组合" aria-pressed={combinationEnabled} onClick={toggleCombination}><Layers size={15} /></button></ToolbarTooltip>
               <PanelSelect value={effectFilter} onChange={setEffectFilter} label="筛选效果" icon={<ListFilter size={15} />} active={effectFilter !== 'all'} downward options={[{ value: 'all', label: '全部' }, { value: 'animated', label: '含动画' }, { value: 'interactive', label: '含交互' }]} />
               <button type="button" className="prompt-scope-trigger effect-layout-toggle" aria-label={`当前${effectLayout === 'grid' ? '宫格' : '列表'}展示，切换为${effectLayout === 'grid' ? '列表' : '宫格'}`} onClick={() => setEffectLayout(current => current === 'grid' ? 'list' : 'grid')}>{effectLayout === 'grid' ? '宫格' : '列表'}<ArrowRightLeft size={14} /></button>
             </div></div>
-            <div className={`effects-list ${effectLayout === 'list' ? 'effects-compact' : ''}`}>{visibleEffects.map(effect => <button className={`effect-card ${shader === effect.id ? 'selected' : ''}`} aria-pressed={shader === effect.id} key={effect.id} onClick={() => { if (effect.id !== shader) { setShader(effect.id); setBackground({ ...EFFECT_BACKGROUNDS[effect.id] }) } setRightTab('shader') }}>
-              <EffectPreview effect={effect.id} /><span className="effect-info"><span className="effect-title">{effect.name}{shader === effect.id && <Check size={14} />}</span><span className="effect-tag">{effect.tag}</span></span>
-            </button>)}</div>
+            {combinationEnabled && <div className="composition-caption heading-with-info">组合 {layerOrder.length}/2<InfoTip text="最多叠加 2 个画面效果，先执行置顶效果，再执行置底效果。点击箭头互换顺序；点击已选卡片取消，右侧标签切换参数。图像效果可叠加；粒子与直接材质效果仅支持单独使用。" /></div>}
+            <div className={`effects-list ${effectLayout === 'list' ? 'effects-compact' : ''}`}>{visibleEffects.map(effect => {
+              const selected = combinationEnabled ? layerOrder.includes(effect.id) : shader === effect.id
+              const disabled = combinationEnabled && !canCompose(effect.id)
+              const index = layerOrder.indexOf(effect.id)
+              return <div className={`effect-card ${selected ? 'selected' : ''} ${disabled ? 'composition-unavailable' : ''}`} key={effect.id}>
+                <button type="button" className="effect-choice" aria-label={effect.name} aria-pressed={selected} disabled={disabled} onClick={() => chooseEffect(effect.id)}>
+                  <EffectPreview effect={effect.id} /><span className="effect-info"><span className="effect-title">{effect.name}{selected && (!combinationEnabled || layerOrder.length === 1) && <Check size={14} />}</span><span className="effect-tag">{disabled ? '暂不支持组合' : effect.tag}</span></span>
+                </button>
+                {selected && combinationEnabled && layerOrder.length === 2 && <ToolbarTooltip label={index === 0 ? '先执行 · 点击置底' : '后执行 · 点击置顶'}><button type="button" className="effect-order-button" aria-label={`${effect.name}${index === 0 ? '置底' : '置顶'}`} onClick={() => setLayerOrder(previous => [...previous].reverse())}>{index === 0 ? <ArrowUpToLine size={15} /> : <ArrowDownToLine size={15} />}</button></ToolbarTooltip>}
+              </div>
+            })}</div>
           </section>
           </TabPane>
         </div>
@@ -347,9 +420,24 @@ export default function App() {
         <div className="tab-content-viewport">
           <TabPane active={rightTab === 'background'} side="left" className="right-scroll">
           <section id="background-panel" role="tabpanel" aria-labelledby="background-tab">
-            <div className="section-heading"><h2 className="heading-with-info">背景颜色<InfoTip text="背景提示词包含背景颜色、参考网格和当前光照，可交给 Agent 还原场景。" /></h2><span>纯色</span></div>
-            <div className="color-grid">{BACKGROUND_COLORS.map(item => <button key={item.color} className={`color-swatch ${background.color === item.color ? 'selected' : ''}`} aria-label={`背景设为${item.name}`} aria-pressed={background.color === item.color} style={{ background: item.color }} title={item.name} onClick={() => setBackground(prev => ({ ...prev, color: item.color }))}>{background.color === item.color && <Check size={17} color={item.color === '#222631' || item.color === '#4e70ef' ? '#fff' : '#293346'} />}</button>)}</div>
-            <ColorPicker label="自定义颜色" value={background.color} className="custom-background-picker" onChange={color=>setBackground(prev=>({...prev,color}))} />
+            <div className="section-heading"><h2 className="heading-with-info">背景样式<InfoTip text="选择纯色或程序背景；提示词包含完整背景算法、参数、参考网格和光照。" /></h2><span>{background.flow?.enabled ? BACKGROUND_PRESETS.find(item => item.kind === (background.flow?.kind ?? 'flow'))?.name : '纯色'}</span></div>
+            <div className="color-grid" role="group" aria-label="背景样式">
+              {BACKGROUND_COLORS.map(item => <button key={item.color} className={`color-swatch ${!background.flow?.enabled && background.color === item.color ? 'selected' : ''}`} aria-label={`背景设为${item.name}`} aria-pressed={!background.flow?.enabled && background.color === item.color} style={{ background: item.color }} title={item.name} onClick={() => setBackground(prev => ({ ...prev, color: item.color, flow: prev.flow ? { ...prev.flow, enabled: false } : undefined }))}>{!background.flow?.enabled && background.color === item.color && <Check size={17} color={item.color === '#222631' || item.color === '#4e70ef' ? '#fff' : '#293346'} />}</button>)}
+              {BACKGROUND_PRESETS.map(item => <button key={item.kind} className={`color-swatch background-asset ${background.flow?.enabled && (background.flow.kind ?? 'flow') === item.kind ? 'selected' : ''}`} style={{ background: item.preview }} aria-label={`背景设为${item.name}`} title={item.name} aria-pressed={!!background.flow?.enabled && (background.flow.kind ?? 'flow') === item.kind} onClick={() => setBackground(prev => ({ ...prev, flow: (prev.flow?.kind ?? 'flow') === item.kind && prev.flow ? { ...prev.flow, enabled: true } : { ...item.settings, colors: [...item.settings.colors] } }))}>
+                {background.flow?.enabled && (background.flow.kind ?? 'flow') === item.kind && <Check size={17} color="#fff" />}<span className="background-asset-label">{item.shortName}</span>
+              </button>)}
+            </div>
+            <ColorPicker label="自定义颜色" value={background.color} className="custom-background-picker" onChange={color => setBackground(prev => ({ ...prev, color, flow: prev.flow ? { ...prev.flow, enabled: false } : undefined }))} />
+            {background.flow?.enabled && <div className="settings-section background-parameters">
+              <h3>{BACKGROUND_PRESETS.find(item => item.kind === (background.flow?.kind ?? 'flow'))?.name}参数</h3>
+              {background.flow.colors.slice(0, background.flow.kind === 'noise' ? 2 : background.flow.kind && background.flow.kind !== 'flow' ? 3 : 4).map((color,i) => <ColorField key={i} label={['底色','主色','辅色','强调色'][i]} value={color} onChange={value => setBackground(prev => { const flow = { ...DEFAULT_FLOW, ...prev.flow }; const colors = [...flow.colors] as typeof flow.colors; colors[i] = value; return { ...prev, flow: { ...flow, colors } } })} />)}
+              <Parameter label={background.flow.kind === 'noise' ? '演化速度' : '流动速度'} value={background.flow.speed} min={0} max={3} step={.1} onChange={speed => setBackground(prev => ({ ...prev, flow: { ...DEFAULT_FLOW, ...prev.flow, speed } }))} />
+              <Parameter label={background.flow.kind === 'aurora' ? '光带起伏' : background.flow.kind === 'orbit' ? '星环起伏' : background.flow.kind === 'noise' ? '纹理对比' : '扭曲强度'} value={background.flow.distortion} min={0} max={2} step={.05} onChange={distortion => setBackground(prev => ({ ...prev, flow: { ...DEFAULT_FLOW, ...prev.flow, distortion } }))} />
+              <Parameter label={background.flow.kind === 'orbit' ? '星环大小' : '纹理密度'} value={background.flow.scale ?? 1} min={.5} max={6} step={.1} onChange={scale => setBackground(prev => ({ ...prev, flow: { ...DEFAULT_FLOW, ...prev.flow, scale } }))} />
+              <Parameter label="亮度" value={background.flow.intensity ?? 1} min={.2} max={2} step={.05} onChange={intensity => setBackground(prev => ({ ...prev, flow: { ...DEFAULT_FLOW, ...prev.flow, intensity } }))} />
+              {background.flow.kind && background.flow.kind !== 'flow' && <Parameter label="颗粒强度" value={background.flow.grain ?? 0} min={0} max={.3} step={.005} onChange={grain => setBackground(prev => ({ ...prev, flow: { ...DEFAULT_FLOW, ...prev.flow, grain } }))} />}
+              <Parameter label="图案种子" value={background.flow.seed} min={0} max={100} step={1} onChange={seed => setBackground(prev => ({ ...prev, flow: { ...DEFAULT_FLOW, ...prev.flow, seed } }))} />
+            </div>}
             <div className="settings-section lighting-section">
               <div className="section-heading"><h3 className="heading-with-info">场景光照<InfoTip text="控制模型的明暗与光线方向。方位角绕模型水平旋转，高度角正值从上方照射。" /></h3><button className="icon-button" aria-label="重置光照" title="重置光照" onClick={() => { setLighting(DEFAULT_LIGHTING); notify('光照已恢复默认') }}><RotateCcw size={14} /></button></div>
 
@@ -367,8 +455,12 @@ export default function App() {
           </TabPane>
           <TabPane active={rightTab === 'shader'} side="right" className="right-scroll" resetKey={shader}>
           <section id="shader-panel" role="tabpanel" aria-labelledby="shader-tab">
+            {combinationEnabled && layerOrder.length === 2 && <div className="layer-edit-tabs" aria-label="选择效果参数">{layerOrder.map((id, index) => <button type="button" key={id} className={shader === id ? 'active' : ''} aria-pressed={shader === id} onClick={() => editLayer(id)}>{index + 1} · {SHADERS.find(effect => effect.id === id)?.name}</button>)}</div>}
             <div className="effect-heading"><div><h2 className="heading-with-info">{currentShader.name}{shader === 'original' && <InfoTip text="保留模型自带的材质与贴图。基础几何使用默认的灰白材质。" />}{shader === 'ascii' && <InfoTip text="8 个明暗层级，每层 3 种字符。关闭随机变动时保留当前字符分布。" />}</h2></div><button className="icon-button subtle" aria-label="重置 Shader 参数" title="重置效果参数" onClick={() => { if (interactive) setInteractions(previous => ({ ...previous, [shader]: { ...DEFAULT_INTERACTION } })); if (isParticle) { setParticle(DEFAULT_PARTICLE); stageRef.current?.resetParticle() } else if (isSurfaceShader(shader)) { setSurface(DEFAULT_SURFACE); stageRef.current?.setDissolveProgress(0) } else if(isReferenceShader(shader)) setReference(DEFAULT_REFERENCE); else setParams(DEFAULT_PARAMS); notify('Shader 参数已恢复默认') }}><RotateCcw size={15} /></button></div>
             <div className="shader-parameters">
+              {EXTENDED_CONTROLS[shader as keyof typeof EXTENDED_CONTROLS]?.map(control => <Parameter key={control.key} label={control.label} value={Number(extendedSettings(params)[control.key])} min={control.min} max={control.max} step={control.step} suffix={control.unit ?? ''} onChange={value => changeParam(control.key, value)} />)}
+              {['contour-lines', 'emboss'].includes(shader) && <div className="colors-pair"><ColorField label={shader === 'contour-lines' ? '线条颜色' : '暗部颜色'} value={params.shadowColor} onChange={value => changeParam('shadowColor', value)} /><ColorField label={shader === 'contour-lines' ? '底色' : '纸面颜色'} value={params.highlightColor} onChange={value => changeParam('highlightColor', value)} /></div>}
+              {shader === 'watercolor' && <ColorField label="纸张颜色" value={params.highlightColor} onChange={value => changeParam('highlightColor', value)} />}
               {interactive && <div className="interaction-settings">
                 <div className="section-heading"><h3 className="heading-with-info">鼠标互动<InfoTip text="移动鼠标探索效果；按住拖动时暂停互动以旋转模型，移入面板后淡出。触屏保留模型旋转。" /></h3><HoverPointer size={14} /></div>
                 <Toggle checked={interaction.enabled} onChange={v => changeInteraction('enabled',v)}>开启鼠标互动</Toggle>
@@ -484,6 +576,21 @@ export default function App() {
               {shader === 'pixelate' && <><Parameter label="像素大小" value={params.gridSize} min={4} max={48} suffix="px" onChange={v => changeParam('gridSize', v)} /><Parameter label="颜色层级" value={params.levels} min={2} max={12} onChange={v => changeParam('levels', v)} /></>}
               {shader === 'ascii' && <><Parameter label="字符大小" value={params.asciiSize ?? 24} min={12} max={64} suffix="px" onChange={v => changeParam('asciiSize', v)} /><Parameter label="明暗对比" value={params.contrast} min={0.2} max={3} step={0.05} onChange={v => changeParam('contrast', v)} /><Toggle checked={params.asciiRandomize ?? false} onChange={v => changeParam('asciiRandomize', v)}>字符随机变动</Toggle>{params.asciiRandomize && <Parameter label="变动速度" value={params.asciiSpeed ?? 3} min={0.5} max={10} step={0.5} suffix="次/s" onChange={v => changeParam('asciiSpeed', v)} />}</>}
               {shader === 'comic-line' && <><Parameter label="线条宽度" value={params.comicWidth ?? 1.2} min={.5} max={3} step={.1} onChange={v => changeParam('comicWidth', v)} /><Parameter label="结构线阈值" value={params.comicDetail ?? .3} min={.05} max={.8} step={.01} onChange={v => changeParam('comicDetail', v)} /><ColorField label="墨线颜色" value={params.comicInk ?? '#292b2c'} onChange={v => changeParam('comicInk', v)} /><ColorField label="填充颜色" value={params.comicPaper ?? '#ffffff'} onChange={v => changeParam('comicPaper', v)} /><div className="settings-section"><Toggle checked={params.comicHatching ?? false} onChange={v => changeParam('comicHatching', v)}>阴影排线</Toggle>{params.comicHatching && <><Parameter label="排线组数" value={params.comicHatchGroups ?? 3} min={1} max={3} step={1} suffix="组" onChange={v => changeParam('comicHatchGroups', v)} /><Parameter label="排线方向" value={params.comicHatchAngle ?? 35} min={-90} max={90} step={1} suffix="°" onChange={v => changeParam('comicHatchAngle', v)} /></>}</div></>}
+              {shader === 'fluted-glass' && <>
+                <Parameter label="条纹方向" value={pilotSettings(params).fluteAngle} min={0} max={180} suffix="°" onChange={v => changeParam('fluteAngle',v)} />
+                <Parameter label="条纹密度" value={pilotSettings(params).fluteFrequency} min={4} max={60} onChange={v => changeParam('fluteFrequency',v)} />
+                <Parameter label="曲面柔和度" value={pilotSettings(params).fluteSoftness} min={0} max={1} step={.01} onChange={v => changeParam('fluteSoftness',v)} />
+                <Parameter label="折射强度" value={pilotSettings(params).fluteRefraction} min={0} max={4} step={.05} onChange={v => changeParam('fluteRefraction',v)} />
+                <Parameter label="色散强度" value={pilotSettings(params).fluteAberration} min={0} max={1} step={.01} onChange={v => changeParam('fluteAberration',v)} />
+                <Parameter label="玻璃高光" value={pilotSettings(params).fluteHighlight} min={0} max={2} step={.05} onChange={v => changeParam('fluteHighlight',v)} />
+              </>}
+              {shader === 'dither' && <>
+                <div className="section-heading"><h3>抖色图案</h3><PanelSelect label="抖色图案" value={String(pilotSettings(params).ditherPattern)} onChange={v => changeParam('ditherPattern',Number(v))} downward options={[{value:'0',label:'Bayer 2×2'},{value:'1',label:'Bayer 4×4'},{value:'2',label:'Bayer 8×8'}]} /></div>
+                <Parameter label="像素大小" value={pilotSettings(params).ditherSize} min={1} max={12} suffix="px" onChange={v => changeParam('ditherSize',v)} />
+                <Parameter label="明暗阈值" value={pilotSettings(params).ditherThreshold} min={0} max={1} step={.01} onChange={v => changeParam('ditherThreshold',v)} />
+                <Parameter label="抖色范围" value={pilotSettings(params).ditherSpread} min={0} max={1} step={.01} onChange={v => changeParam('ditherSpread',v)} />
+                <ColorField label="暗部颜色" value={params.shadowColor} onChange={v => changeParam('shadowColor',v)} /><ColorField label="亮部颜色" value={params.highlightColor} onChange={v => changeParam('highlightColor',v)} />
+              </>}
               {shader === 'heatmap' && <>
                 <div className="settings-section"><h3>热区分布</h3><Parameter label="冷暖偏移" value={heatSettings(params).heatOffset} min={-.5} max={.5} step={.01} onChange={v => changeParam('heatOffset', v)} /><Parameter label="热区对比" value={heatSettings(params).heatContrast} min={.3} max={3} step={.05} onChange={v => changeParam('heatContrast', v)} /><Parameter label="有机纹理" value={heatSettings(params).heatOrganic} min={0} max={1} step={.01} onChange={v => changeParam('heatOrganic', v)} /><Parameter label="纹理密度" value={heatSettings(params).heatScale} min={.5} max={8} step={.1} onChange={v => changeParam('heatScale', v)} /><Parameter label="颗粒强度" value={heatSettings(params).heatGrain} min={0} max={.3} step={.005} onChange={v => changeParam('heatGrain', v)} /></div>
                 <div className="settings-section palette-settings"><h3>冷暖色带</h3>
@@ -514,8 +621,8 @@ export default function App() {
 
     {(loading || stageError) && <div className={`stage-message ${stageError ? 'error-message' : ''}`} role={stageError ? 'alert' : 'status'}>{stageError ? <><Box size={26} /><strong>暂时无法显示模型</strong><p>{stageError}</p><button onClick={() => setRetryKey(v => v + 1)}>重新加载</button>{model.source === 'upload' && <button className="text-button" onClick={() => selectModel('claw')}>返回默认模型</button>}</> : <><LoaderCircle className="spin" size={25} /><span>正在准备 {model.name}…</span></>}</div>}
     {isParticle && !particlePlayback.ready && !loading && !stageError && <div className="stage-message" role="status"><LoaderCircle className="spin" size={25} /><span>正在生成粒子…</span></div>}
-    <div className="canvas-caption" aria-live="polite"><span>{isParticle && particlePlayback.phase === 'logo' ? 'AMS 标志' : model.name}</span><span className="caption-separator">/</span><span>{currentShader.name}</span></div>
-    <div className="view-toolbar" aria-label="视图控制"><ToolbarTooltip label={!interactive ? '此效果不支持鼠标互动' : interaction.enabled ? '关闭鼠标互动' : '开启鼠标互动'}><button aria-label="鼠标互动" aria-pressed={interactive && interaction.enabled} disabled={!interactive} onClick={() => changeInteraction('enabled', !interaction.enabled)}><HoverPointer size={16} /></button></ToolbarTooltip><span className="toolbar-divider" />{isParticle ? <ToolbarTooltip label={particleAction}><button className="animation-toolbar-button" aria-label="播放粒子动画" disabled={!particleCanPlay} onClick={() => stageRef.current?.playParticle()}>{particlePlaying ? <LoaderCircle size={15} className="spin" /> : <Play size={15} />}<span>{particleAction}</span></button></ToolbarTooltip> : <ToolbarTooltip label={view.autoRotate ? '暂停旋转' : '自动旋转'}><button aria-label={view.autoRotate ? '暂停自动旋转' : '开始自动旋转'} onClick={() => changeView('autoRotate', !view.autoRotate)}>{view.autoRotate ? <Pause size={16} /> : <Play size={16} />}</button></ToolbarTooltip>}<span className="toolbar-divider" /><ToolbarTooltip label="重置视角"><button aria-label="重置视角" onClick={() => { stageRef.current?.resetView(); setView(prev => ({ ...prev, scale: 1, rotationX: 0, rotationY: 0, rotationZ: 0 })); notify('视角已重置') }}><Focus size={18} /></button></ToolbarTooltip><ToolbarTooltip label="专注模式"><button aria-label="切换专注模式" aria-pressed={!leftOpen && !rightOpen} onClick={() => { if (leftOpen || rightOpen) { setLeftOpen(false); setRightOpen(false) } else { setLeftOpen(true); setRightOpen(window.innerWidth > 900) } }}>{leftOpen || rightOpen ? <Minimize2 size={16} /> : <Maximize2 size={16} />}</button></ToolbarTooltip></div>
+    <div className="canvas-caption" aria-live="polite"><span>{isParticle && particlePlayback.phase === 'logo' ? 'AMS 标志' : model.name}</span><span className="caption-separator">/</span><span>{layers?.map(layer=>SHADERS.find(item=>item.id===layer.shader)?.name).join(' → ') ?? currentShader.name}</span></div>
+    <div className="view-toolbar" aria-label="视图控制"><ToolbarTooltip label={!hoverIds.length ? '此效果不支持鼠标互动' : hoverEnabled ? '关闭鼠标互动' : '开启鼠标互动'}><button aria-label="鼠标互动" aria-pressed={hoverEnabled} disabled={!hoverIds.length} onClick={toggleHover}><HoverPointer size={16} /></button></ToolbarTooltip><span className="toolbar-divider" />{isParticle ? <ToolbarTooltip label={particleAction}><button className="animation-toolbar-button" aria-label="播放粒子动画" disabled={!particleCanPlay} onClick={() => stageRef.current?.playParticle()}>{particlePlaying ? <LoaderCircle size={15} className="spin" /> : <Play size={15} />}<span>{particleAction}</span></button></ToolbarTooltip> : <ToolbarTooltip label={view.autoRotate ? '暂停旋转' : '自动旋转'}><button aria-label={view.autoRotate ? '暂停自动旋转' : '开始自动旋转'} onClick={() => changeView('autoRotate', !view.autoRotate)}>{view.autoRotate ? <Pause size={16} /> : <Play size={16} />}</button></ToolbarTooltip>}<span className="toolbar-divider" /><ToolbarTooltip label="重置视角"><button aria-label="重置视角" onClick={() => { stageRef.current?.resetView(); setView(prev => ({ ...prev, scale: DEFAULT_VIEW.scale, rotationX: 0, rotationY: 0, rotationZ: 0 })); notify('视角已重置') }}><Focus size={18} /></button></ToolbarTooltip><ToolbarTooltip label="专注模式"><button aria-label="切换专注模式" aria-pressed={!leftOpen && !rightOpen} onClick={() => { if (leftOpen || rightOpen) { setLeftOpen(false); setRightOpen(false) } else { setLeftOpen(true); setRightOpen(window.innerWidth > 900) } }}>{leftOpen || rightOpen ? <Minimize2 size={16} /> : <Maximize2 size={16} />}</button></ToolbarTooltip></div>
     <footer className="workspace-footer"><span className="gesture-hint"><MousePointer2 size={13} />拖动旋转<span>·</span>滚轮缩放</span><span className="model-stats">{stats ? `${stats.meshes} 个网格 · ${new Intl.NumberFormat('zh-CN').format(stats.triangles)} 三角面` : 'Shader Room'}</span></footer>
     <div className="toast-region" role="status" aria-live="polite">{toast && <div className="toast"><Check size={15} />{toast}</div>}</div>
   </main>

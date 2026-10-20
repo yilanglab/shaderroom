@@ -22,7 +22,7 @@ vec4 renderHeat(vec2 uv) {
   vec3 n = normalize(sampleValue.rgb * 2.0 - 1.0 + vec3(.00001));
   vec2 p = (uv-.5)*vec2(resolution.x/resolution.y,1.0)*heatScale*6.28318;
   float organic = .5+.25*(sin(p.x+sin(p.y*1.3))+cos(p.y+sin(p.x*.8)));
-  float surface = .5+.38*dot(n,normalize(vec3(-.55,-.65,.55)))+.12*(1.0-abs(n.z));
+  float surface = stackInputDisplay > .5 ? dot(sampleValue.rgb,vec3(.299,.587,.114)) : .5+.38*dot(n,normalize(vec3(-.55,-.65,.55)))+.12*(1.0-abs(n.z));
   float t = clamp((mix(surface,organic,heatOrganic)-.5)*heatContrast+.5+heatOffset,0.0,1.0);
   vec3 color;
   if(t<.25) color=mix(heatCold,heatCool,smoothstep(0.0,.25,t));

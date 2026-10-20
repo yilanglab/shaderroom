@@ -1,4 +1,5 @@
-export const MODEL_SCALE_RANGE = { min: 0.4, max: 2, step: 0.01 } as const
+export const MODEL_DEFAULT_SCALE = 1
+export const MODEL_SCALE_RANGE = { min: 0.4, max: 4, step: 0.01 } as const
 export const MODEL_ZOOM_WHEEL = { linePixels: 16, fallbackPagePixels: 800, exponentPerPixel: 0.0015 } as const
 
 export interface ModelZoomOptions {
@@ -18,7 +19,7 @@ function clampScale(value: number) {
 }
 
 export function normalizeModelScale(value: number): number {
-  return Math.round((clampScale(Number.isNaN(value) ? 1 : value) + Number.EPSILON) * 100) / 100
+  return Math.round((clampScale(Number.isNaN(value) ? MODEL_DEFAULT_SCALE : value) + Number.EPSILON) * 100) / 100
 }
 
 /** Adapts only this element's wheel and two-touch gestures to a controlled model scale.

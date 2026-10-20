@@ -119,3 +119,49 @@
 @media (max-width: 640px) {
   .right-scroll { --settings-heading-compensation: 10.5px; }
 }
+
+.flow-background,.flow-grid{position:absolute;inset:0;pointer-events:none}.flow-background{z-index:-2}.flow-background canvas{width:100%;height:100%;display:block}.flow-grid{z-index:-1}
+.effect-fluted-glass{background:repeating-linear-gradient(90deg,#879eae 0,#dceafa 8%,#afbed6 12%,#688bba 14%)!important}.effect-dither{background-color:#d5d4ce!important;background-image:radial-gradient(#233140 1px,transparent 1px)!important;background-size:4px 4px!important}
+
+.background-asset{overflow:visible;color:white}.background-asset-label{position:absolute;inset:auto 0 3px;text-align:center;font-size:12px;line-height:16px;font-weight:500;text-shadow:0 1px 4px #000b;pointer-events:none}.background-asset>svg{margin-top:-9px;filter:drop-shadow(0 1px 3px #0008)}.color-swatch:hover{filter:brightness(1.08)}.color-swatch:focus-visible{outline:2px solid var(--ui-accent);outline-offset:4px}.background-parameters>h3{margin-bottom:16px}
+/* Effect selection and composition share one card surface. */
+.effect-card{position:relative}
+.effect-choice{border:0;background:transparent;color:inherit;padding:0;display:flex;flex-direction:column;align-items:stretch;gap:10px;min-width:0;text-align:left;width:100%;border-radius:6px}
+.effect-choice:focus-visible{outline:2px solid var(--ui-accent);outline-offset:4px}
+.effect-choice:disabled{cursor:not-allowed}
+.effects-compact .effect-choice{flex-direction:row;align-items:center;gap:10px}
+.effect-card.composition-unavailable{opacity:.38}
+.composition-toggle{padding:5px!important;min-width:26px}
+.composition-toggle.active{background:var(--ui-selected)!important;color:var(--ui-accent)!important}
+.composition-caption{font-size:12px;color:var(--ui-muted);margin:-4px 0 14px;gap:5px}
+.effect-card>.toolbar-tooltip-wrap{position:absolute;right:7px;bottom:26px}
+.effect-order-button{display:grid;place-items:center;border:0;background:transparent;color:var(--ui-accent);width:25px;height:25px;border-radius:6px;padding:0}
+.effect-order-button:hover{background:var(--ui-hover)}
+.effect-card:has(.effect-order-button) .effect-title{padding-right:18px}
+.effects-compact .effect-card>.toolbar-tooltip-wrap{bottom:auto;top:calc(50% - 12px)}
+.effects-compact .effect-card:has(.effect-order-button) .effect-info{padding-right:22px}
+.layer-edit-tabs{display:flex;gap:5px;margin:0 0 18px;padding:3px;background:var(--ui-track);border-radius:9px}
+.layer-edit-tabs button{flex:1;min-width:0;border:0;border-radius:6px;background:transparent;color:var(--ui-muted);font-size:12px;padding:7px 3px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.layer-edit-tabs button.active{background:var(--ui-surface);color:var(--ui-text)}
+.effect-contour-lines{background:#ded6c6}.effect-contour-lines .effect-orb{background:repeating-radial-gradient(ellipse at 35% 28%,#f1e8d8 0 3px,#435446 3px 4px,#e6dfca 4px 7px)}
+.effect-watercolor{background:#e8dfcf}.effect-watercolor .effect-orb{background:radial-gradient(ellipse at 30% 23%,#efe0c1,#a5b8c5 40%,#667eae 75%);filter:blur(.7px);border-radius:47% 52% 46% 55%;box-shadow:0 0 5px #46607d88,inset -2px -2px 5px #35517355}
+.effect-emboss{background:#ddd6c9}.effect-emboss .effect-orb{background:#ddd6c9;box-shadow:inset 2px 3px 5px #fff9,inset -3px -3px 6px #8a8172aa,2px 2px 4px #8a817255}
+.effect-pixel-sort{background:#131524}.effect-pixel-sort .effect-orb{border-radius:35%;background:repeating-linear-gradient(90deg,#73b8df 0 2px,#4f62a2 2px 5px,#c693bf 5px 6px);transform:skewY(-8deg)}
+.effect-frost{background:#b8d1db}.effect-frost .effect-orb{background:repeating-conic-gradient(from 35deg,#f1faff66 0deg 20deg,#b7d4df33 20deg 45deg),radial-gradient(circle at 28% 25%,#effbff,#779aab);filter:blur(.4px)}
+.effect-glass-tiles{background:#a8beca}.effect-glass-tiles .effect-orb{border-radius:15%;background:repeating-conic-gradient(#e7f5ff 0% 25%,#719bb8 0% 50%) 0 0/13px 13px;box-shadow:inset 0 0 10px #f4fbff88}
+.effect-crt-screen{background:#071710}.effect-crt-screen .effect-orb{background:repeating-linear-gradient(0deg,#052f16 0 1px,transparent 1px 4px),radial-gradient(circle at 30% 25%,#ceffd3,#35d570 60%,#15452b);box-shadow:0 0 9px #45cf7766}
+.effect-shatter{background:#151924}.effect-shatter .effect-orb{border-radius:30%;background:conic-gradient(from 40deg,#afd2df,#6691ab 60deg,#e9f2fa 61deg,#91baca 140deg,#405878 141deg,#ccdeef 250deg,#516781 251deg,#afd2df);clip-path:polygon(35% 0,75% 5%,100% 35%,84% 69%,95% 94%,47% 89%,20% 100%,0 55%,10% 15%)}
+
+.effect-card>.toolbar-tooltip-wrap .effect-order-button{width:21px;height:23px}
+
+/* Library controls sit directly below the tabs; show their help inside the scroll area. */
+.effect-library-controls .toolbar-tooltip-wrap .panel-tooltip {
+  top: calc(100% + 8px);
+  bottom: auto;
+  transform-origin: center top;
+  z-index: 5;
+}
+.effect-library-controls .toolbar-tooltip-wrap .panel-tooltip::before {
+  top: -8px;
+  height: 8px;
+}
