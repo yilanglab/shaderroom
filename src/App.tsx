@@ -65,8 +65,6 @@ function SlidingTabs({ active, label, children }: { active: string; label: strin
     if (snap) pill.style.transition = 'none'
     pill.style.transform = `translateX(${tab.offsetLeft}px)`
     pill.style.width = `${tab.offsetWidth}px`
-    pill.style.top = `${tab.offsetTop}px`
-    pill.style.height = `${tab.offsetHeight}px`
     if (snap) {
       void pill.offsetWidth
       pill.style.removeProperty('transition')
