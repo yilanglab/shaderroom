@@ -1,0 +1,48 @@
+.dock-tooltip-group {
+  --dock-tt-in: 150ms;
+  --dock-tt-out: 50ms;
+  --dock-tt-slide: 250ms;
+  --dock-tt-ease: cubic-bezier(.22, 1, .36, 1);
+}
+/* Keep each trigger's description for assistive technology; draw one surface. */
+.dock-tooltip-group > .toolbar-tooltip-wrap > .panel-tooltip { display: none; }
+.dock-tooltip-motion {
+  position: absolute;
+  left: 0;
+  bottom: calc(100% + 12px);
+  pointer-events: none;
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity var(--dock-tt-out) ease-out, visibility 0s var(--dock-tt-out);
+}
+.dock-tooltip-motion[data-open="true"] {
+  opacity: 1;
+  visibility: visible;
+  transition:
+    transform var(--dock-tt-slide) var(--dock-tt-ease),
+    width var(--dock-tt-slide) var(--dock-tt-ease),
+    opacity var(--dock-tt-in) ease-out,
+    visibility 0s;
+}
+.dock-tooltip-motion .dock-tooltip-surface {
+  position: relative;
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  top: auto;
+  left: auto;
+  opacity: 1;
+  visibility: inherit;
+  transform: scale(.98);
+  transform-origin: center bottom;
+  transition: transform var(--dock-tt-out) ease-out;
+}
+.dock-tooltip-motion[data-open="true"] .dock-tooltip-surface {
+  transform: scale(1);
+  transition-duration: var(--dock-tt-in);
+}
+@media (prefers-reduced-motion: reduce) {
+  .dock-tooltip-motion, .dock-tooltip-motion .dock-tooltip-surface { transition: none !important; }
+}
+
+.dock-tooltip-label { display: inline-block; width: max-content; }
